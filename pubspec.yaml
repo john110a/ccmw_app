@@ -1,0 +1,73 @@
+name: ccmw_app
+description: Clean City & Municipal Watch Application
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # UI & Design
+  flutter_svg: ^2.0.9
+  
+  # HTTP & API
+  http: ^1.1.0
+  dio: ^5.4.0
+  
+  # State Management
+  provider: ^6.1.1
+  
+  # Local Storage
+  shared_preferences: ^2.2.2
+  sqflite: ^2.3.0
+  
+  # Location & Maps
+  google_maps_flutter: ^2.5.0
+  google_maps_flutter_web: ^0.5.4+2
+  geolocator: ^10.1.0
+  geocoding: ^2.1.1
+  flutter_polyline_points: ^3.1.0
+  maps_launcher: ^3.0.0+1
+  latlong2: ^0.9.0
+  google_polyline_algorithm: ^3.1.0
+
+  # Image Handling
+  image_picker: ^1.0.5
+  cached_network_image: ^3.3.0
+  
+  # Charts
+  fl_chart: ^0.65.0
+  url_launcher: ^6.2.0
+  # Date/Time
+  intl: ^0.18.1
+  
+  # Utilities
+  uuid: ^4.3.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  
+  # Assets configuration
+  assets:
+    - assets/images/
+    - assets/icons/
+  
+  # Fonts configuration (optional - remove if you don't have custom fonts)
+  # fonts:
+  #   - family: Inter
+  #     fonts:
+  #       - asset: assets/fonts/Inter-Regular.ttf
+  #       - asset: assets/fonts/Inter-Medium.ttf
+  #         weight: 500
+  #       - asset: assets/fonts/Inter-SemiBold.ttf
+  #         weight: 600
+  #       - asset: assets/fonts/Inter-Bold.ttf
+  #         weight: 700
