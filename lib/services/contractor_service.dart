@@ -120,6 +120,95 @@ class ContractorService {
     }
   }
 
+  /// Create a new contractor
+  Future<Map<String, dynamic>> createContractor(Contractor contractor) async {
+    try {
+      print('📡 Creating new contractor: ${contractor.companyName}');
+      final url = '${ApiConfig.baseUrl}/contractors/create';
+      print('📍 URL: $url');
+
+      final response = await http.post(
+        Uri.parse(url),
+        headers: ApiConfig.getHeaders(),
+        body: json.encode(contractor.toJson()),
+      ).timeout(const Duration(seconds: 15));
+
+      print('📡 Response status: ${response.statusCode}');
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final result = json.decode(response.body);
+        print('✅ Contractor created successfully');
+        return result;
+      } else {
+        throw Exception('Failed to create contractor: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ Error creating contractor: $e');
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Update an existing contractor
+  Future<Map<String, dynamic>> updateContractor(String contractorId, Contractor contractor) async {
+    try {
+      print('📡 Updating contractor: $contractorId');
+      final url = '${ApiConfig.baseUrl}/contractors/$contractorId/update';
+      print('📍 URL: $url');
+
+      final response = await http.put(
+        Uri.parse(url),
+        headers: ApiConfig.getHeaders(),
+        body: json.encode(contractor.toJson()),
+      ).timeout(const Duration(seconds: 15));
+
+      print('📡 Response status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final result = json.decode(response.body);
+        print('✅ Contractor updated successfully');
+        return result;
+      } else {
+        throw Exception('Failed to update contractor: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ Error updating contractor: $e');
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Delete/Deactivate a contractor (soft delete)
+  Future<Map<String, dynamic>> deleteContractor(String contractorId) async {
+    try {
+      print('📡 Deactivating contractor: $contractorId');
+      // First get the contractor, then update isActive to false
+      final contractor = await getContractorProfile(contractorId);
+
+      final updatedContractor = Contractor(
+        contractorId: contractor.contractorId,
+        companyName: contractor.companyName,
+        companyRegistrationNumber: contractor.companyRegistrationNumber,
+        contactPersonName: contractor.contactPersonName,
+        contactPersonPhone: contractor.contactPersonPhone,
+        contactEmail: contractor.contactEmail,
+        companyAddress: contractor.companyAddress,
+        contractStart: contractor.contractStart,
+        contractEnd: contractor.contractEnd,
+        contractValue: contractor.contractValue,
+        performanceBond: contractor.performanceBond,
+        performanceScore: contractor.performanceScore,
+        slaComplianceRate: contractor.slaComplianceRate,
+        isActive: false,
+        createdAt: contractor.createdAt,
+        updatedAt: DateTime.now(),
+      );
+
+      return await updateContractor(contractorId, updatedContractor);
+    } catch (e) {
+      print('❌ Error deactivating contractor: $e');
+      throw Exception('Network error: $e');
+    }
+  }
+
   // =====================================================
   // 3. ZONE MANAGEMENT
   // =====================================================

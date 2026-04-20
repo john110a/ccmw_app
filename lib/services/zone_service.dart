@@ -239,7 +239,7 @@ class ZoneService {
     }
   }
 
-  /// Create zone with polygon - UPDATED to match backend PascalCase
+  /// Create zone with polygon - UPDATED to include department assignments
   Future<Map<String, dynamic>> createZone({
     required String zoneName,
     required int zoneNumber,
@@ -268,26 +268,40 @@ class ZoneService {
       // Convert polygon to GeoJSON format
       final geoJson = toGeoJson(points);
 
+      // ================================================
+      // FIXED: Convert department assignments to PascalCase
+      // ================================================
+      final departmentAssignmentsList = departmentAssignments?.map((dept) {
+        return {
+          'DepartmentId': dept['departmentId'],      // PascalCase
+          'DepartmentName': dept['departmentName'],  // PascalCase
+          'StaffCount': dept['staffCount'] ?? 0,     // PascalCase
+          'ColorCode': dept['colorCode'] ?? colorCode, // PascalCase
+        };
+      }).toList();
+
       // Prepare zone data with PascalCase to match C# model
       final zoneData = {
-        'ZoneName': zoneName,           // PascalCase
-        'ZoneNumber': zoneNumber,       // PascalCase
-        'ZoneCode': 'Z${zoneNumber.toString().padLeft(3, '0')}', // PascalCase
-        'City': city ?? 'Islamabad',    // PascalCase
-        'Province': province ?? 'ICT',  // PascalCase
-        'Population': population ?? 0,  // PascalCase
-        'BoundaryPolygon': geoJson,     // PascalCase
-        'CenterLatitude': center.latitude,  // PascalCase
-        'CenterLongitude': center.longitude, // PascalCase
-        'ColorCode': colorCode,         // PascalCase
-        'TotalAreaSqKm': calculatedArea, // PascalCase
-        'IsActive': true,               // PascalCase
+        'ZoneName': zoneName,
+        'ZoneNumber': zoneNumber,
+        'ZoneCode': 'Z${zoneNumber.toString().padLeft(3, '0')}',
+        'City': city ?? 'Islamabad',
+        'Province': province ?? 'ICT',
+        'Population': population ?? 0,
+        'BoundaryPolygon': geoJson,
+        'CenterLatitude': center.latitude,
+        'CenterLongitude': center.longitude,
+        'ColorCode': colorCode,
+        'TotalAreaSqKm': calculatedArea,
+        'IsActive': true,
+        'DepartmentAssignments': departmentAssignmentsList ?? [],  // ← CRITICAL: Send department assignments
       };
 
       print('📡 Creating zone: $zoneName');
       print('📡 Points: ${points.length} boundary points');
       print('📡 Area: ${calculatedArea.toStringAsFixed(2)} km²');
       print('📡 Center: ${center.latitude}, ${center.longitude}');
+      print('📡 Department assignments: ${departmentAssignmentsList?.length ?? 0}');
       print('📡 Request body: ${json.encode(zoneData)}');
 
       final response = await http.post(

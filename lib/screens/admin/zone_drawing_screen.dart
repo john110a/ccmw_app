@@ -216,7 +216,6 @@ class _ZoneDrawingScreenState extends State<ZoneDrawingScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Polygon success message
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -257,7 +256,6 @@ class _ZoneDrawingScreenState extends State<ZoneDrawingScreen> {
 
           const SizedBox(height: 24),
 
-          // Zone Information Card
           Card(
             elevation: 2,
             child: Padding(
@@ -301,7 +299,6 @@ class _ZoneDrawingScreenState extends State<ZoneDrawingScreen> {
 
           const SizedBox(height: 24),
 
-          // Department Assignments Card
           Card(
             elevation: 2,
             child: Padding(
@@ -433,7 +430,6 @@ class _ZoneDrawingScreenState extends State<ZoneDrawingScreen> {
 
           const SizedBox(height: 32),
 
-          // Save Button
           ElevatedButton(
             onPressed: _isSaving ? null : _saveZone,
             style: ElevatedButton.styleFrom(
@@ -533,6 +529,7 @@ class _ZoneDrawingScreenState extends State<ZoneDrawingScreen> {
                             Colors.blue;
                       }
                     });
+                    print('📌 Selected department: ${selectedDepartment?.departmentName} ($selectedDepartmentId)');
                   },
                 ),
                 const SizedBox(height: 16),
@@ -569,6 +566,8 @@ class _ZoneDrawingScreenState extends State<ZoneDrawingScreen> {
             ElevatedButton(
               onPressed: () {
                 if (selectedDepartmentId != null && selectedColor != null) {
+                  print('✅ Adding department: ${selectedDepartment?.departmentName} with color $selectedColor');
+
                   this.setState(() {
                     _departmentAssignments.add({
                       'id': selectedDepartmentId,
@@ -638,15 +637,17 @@ class _ZoneDrawingScreenState extends State<ZoneDrawingScreen> {
       LatLng center = PolygonHelper.calculateCenter(validPoints);
       double area = PolygonHelper.calculateArea(validPoints);
 
-      // Prepare department assignments for API
+      // Prepare department assignments for API - camelCase for Flutter
       final departmentAssignments = _departmentAssignments.map((dept) {
         return {
           'departmentId': dept['id'],
           'departmentName': dept['name'],
-          'colorCode': '#${dept['color'].value.toRadixString(16).substring(2)}',
           'staffCount': 0,
+          'colorCode': '#${dept['color'].value.toRadixString(16).substring(2)}',
         };
       }).toList();
+
+      print('📡 Department assignments payload: $departmentAssignments');
 
       final result = await _zoneService.createZone(
         zoneName: _zoneNameController.text.trim(),
@@ -658,7 +659,7 @@ class _ZoneDrawingScreenState extends State<ZoneDrawingScreen> {
         city: 'Islamabad',
         province: 'ICT',
         population: 0,
-        departmentAssignments: departmentAssignments,
+        departmentAssignments: departmentAssignments, // ← This is critical!
       );
 
       if (mounted) {

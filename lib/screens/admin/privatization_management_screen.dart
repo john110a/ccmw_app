@@ -24,6 +24,21 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
 
   late TabController _tabController;
 
+  // Form controllers for adding contractor
+  final TextEditingController _companyNameController = TextEditingController();
+  final TextEditingController _registrationNumberController = TextEditingController();
+  final TextEditingController _contactPersonController = TextEditingController();
+  final TextEditingController _contactPhoneController = TextEditingController();
+  final TextEditingController _contactEmailController = TextEditingController();
+  final TextEditingController _companyAddressController = TextEditingController();
+  final TextEditingController _contractValueController = TextEditingController();
+  final TextEditingController _performanceBondController = TextEditingController();
+  final TextEditingController _performanceScoreController = TextEditingController();
+  final TextEditingController _slaComplianceController = TextEditingController();
+
+  DateTime? _selectedContractStart;
+  DateTime? _selectedContractEnd;
+
   @override
   void initState() {
     super.initState();
@@ -148,6 +163,375 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
     }
   }
 
+  Future<void> _addContractor() async {
+    // Validate form
+    if (_companyNameController.text.isEmpty) {
+      _showErrorDialog('Please enter company name');
+      return;
+    }
+
+    if (_registrationNumberController.text.isEmpty) {
+      _showErrorDialog('Please enter registration number');
+      return;
+    }
+
+    if (_contactPersonController.text.isEmpty) {
+      _showErrorDialog('Please enter contact person name');
+      return;
+    }
+
+    if (_contactPhoneController.text.isEmpty) {
+      _showErrorDialog('Please enter contact phone');
+      return;
+    }
+
+    if (_contactEmailController.text.isEmpty) {
+      _showErrorDialog('Please enter contact email');
+      return;
+    }
+
+    if (_selectedContractStart == null) {
+      _showErrorDialog('Please select contract start date');
+      return;
+    }
+
+    if (_selectedContractEnd == null) {
+      _showErrorDialog('Please select contract end date');
+      return;
+    }
+
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()),
+      );
+
+      final contractor = Contractor(
+        contractorId: '',
+        companyName: _companyNameController.text.trim(),
+        companyRegistrationNumber: _registrationNumberController.text.trim(),
+        contactPersonName: _contactPersonController.text.trim(),
+        contactPersonPhone: _contactPhoneController.text.trim(),
+        contactEmail: _contactEmailController.text.trim(),
+        companyAddress: _companyAddressController.text.trim(),
+        contractStart: _selectedContractStart!,
+        contractEnd: _selectedContractEnd!,
+        contractValue: double.tryParse(_contractValueController.text) ?? 0,
+        performanceBond: double.tryParse(_performanceBondController.text) ?? 0,
+        performanceScore: double.tryParse(_performanceScoreController.text) ?? 0,
+        slaComplianceRate: double.tryParse(_slaComplianceController.text) ?? 0,
+        isActive: true,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+
+      // Call API to create contractor
+      await _contractorService.createContractor(contractor);
+
+      if (!mounted) return;
+      Navigator.pop(context); // Close loading dialog
+      Navigator.pop(context); // Close add contractor dialog
+
+      // Refresh contractors list
+      await _loadData();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Contractor added successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      // Clear form
+      _clearContractorForm();
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context); // Close loading dialog
+      _showErrorDialog('Failed to add contractor: $e');
+    }
+  }
+
+  Future<void> _updateContractor(Contractor contractor) async {
+    // Show edit dialog
+    _companyNameController.text = contractor.companyName;
+    _registrationNumberController.text = contractor.companyRegistrationNumber ?? '';
+    _contactPersonController.text = contractor.contactPersonName ?? '';
+    _contactPhoneController.text = contractor.contactPersonPhone ?? '';
+    _contactEmailController.text = contractor.contactEmail ?? '';
+    _companyAddressController.text = contractor.companyAddress ?? '';
+    _contractValueController.text = contractor.contractValue?.toString() ?? '';
+    _performanceBondController.text = contractor.performanceBond?.toString() ?? '';
+    _performanceScoreController.text = contractor.performanceScore?.toString() ?? '';
+    _slaComplianceController.text = contractor.slaComplianceRate?.toString() ?? '';
+    _selectedContractStart = contractor.contractStart;
+    _selectedContractEnd = contractor.contractEnd;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit Contractor'),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: MediaQuery.of(context).size.height * 0.7,
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                _buildTextField(_companyNameController, 'Company Name', Icons.business),
+                const SizedBox(height: 12),
+                _buildTextField(_registrationNumberController, 'Registration Number', Icons.numbers),
+                const SizedBox(height: 12),
+                _buildTextField(_contactPersonController, 'Contact Person', Icons.person),
+                const SizedBox(height: 12),
+                _buildTextField(_contactPhoneController, 'Phone Number', Icons.phone),
+                const SizedBox(height: 12),
+                _buildTextField(_contactEmailController, 'Email', Icons.email),
+                const SizedBox(height: 12),
+                _buildTextField(_companyAddressController, 'Address', Icons.location_on),
+                const SizedBox(height: 12),
+                _buildDatePicker('Contract Start', _selectedContractStart, (date) {
+                  setState(() => _selectedContractStart = date);
+                }),
+                const SizedBox(height: 12),
+                _buildDatePicker('Contract End', _selectedContractEnd, (date) {
+                  setState(() => _selectedContractEnd = date);
+                }),
+                const SizedBox(height: 12),
+                _buildTextField(_contractValueController, 'Contract Value (Rs.)', Icons.currency_rupee, isNumber: true),
+                const SizedBox(height: 12),
+                _buildTextField(_performanceBondController, 'Performance Bond (Rs.)', Icons.security, isNumber: true),
+                const SizedBox(height: 12),
+                _buildTextField(_performanceScoreController, 'Performance Score (%)', Icons.star, isNumber: true),
+                const SizedBox(height: 12),
+                _buildTextField(_slaComplianceController, 'SLA Compliance (%)', Icons.timer, isNumber: true),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              try {
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (_) => const Center(child: CircularProgressIndicator()),
+                );
+
+                final updatedContractor = Contractor(
+                  contractorId: contractor.contractorId,
+                  companyName: _companyNameController.text.trim(),
+                  companyRegistrationNumber: _registrationNumberController.text.trim(),
+                  contactPersonName: _contactPersonController.text.trim(),
+                  contactPersonPhone: _contactPhoneController.text.trim(),
+                  contactEmail: _contactEmailController.text.trim(),
+                  companyAddress: _companyAddressController.text.trim(),
+                  contractStart: _selectedContractStart!,
+                  contractEnd: _selectedContractEnd!,
+                  contractValue: double.tryParse(_contractValueController.text) ?? 0,
+                  performanceBond: double.tryParse(_performanceBondController.text) ?? 0,
+                  performanceScore: double.tryParse(_performanceScoreController.text) ?? 0,
+                  slaComplianceRate: double.tryParse(_slaComplianceController.text) ?? 0,
+                  isActive: true,
+                  createdAt: contractor.createdAt,
+                  updatedAt: DateTime.now(),
+                );
+
+                await _contractorService.updateContractor(contractor.contractorId, updatedContractor);
+
+                if (!mounted) return;
+                Navigator.pop(context);
+                await _loadData();
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Contractor updated successfully'), backgroundColor: Colors.green),
+                );
+              } catch (e) {
+                if (!mounted) return;
+                Navigator.pop(context);
+                _showErrorDialog('Failed to update contractor: $e');
+              }
+            },
+            child: const Text('Save Changes'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deactivateContractor(Contractor contractor) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Deactivate Contractor'),
+        content: Text('Are you sure you want to deactivate ${contractor.companyName}?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Deactivate'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => const Center(child: CircularProgressIndicator()),
+        );
+
+        await _contractorService.deleteContractor(contractor.contractorId);
+
+        if (!mounted) return;
+        Navigator.pop(context);
+        await _loadData();
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${contractor.companyName} deactivated successfully'), backgroundColor: Colors.green),
+        );
+      } catch (e) {
+        if (!mounted) return;
+        Navigator.pop(context);
+        _showErrorDialog('Failed to deactivate contractor: $e');
+      }
+    }
+  }
+
+  void _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Error'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _clearContractorForm() {
+    _companyNameController.clear();
+    _registrationNumberController.clear();
+    _contactPersonController.clear();
+    _contactPhoneController.clear();
+    _contactEmailController.clear();
+    _companyAddressController.clear();
+    _contractValueController.clear();
+    _performanceBondController.clear();
+    _performanceScoreController.clear();
+    _slaComplianceController.clear();
+    _selectedContractStart = null;
+    _selectedContractEnd = null;
+  }
+
+  Widget _buildTextField(TextEditingController controller, String label, IconData icon, {bool isNumber = false}) {
+    return TextField(
+      controller: controller,
+      keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, size: 20),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    );
+  }
+
+  Widget _buildDatePicker(String label, DateTime? selectedDate, Function(DateTime) onSelected) {
+    return InkWell(
+      onTap: () async {
+        final date = await showDatePicker(
+          context: context,
+          initialDate: selectedDate ?? DateTime.now(),
+          firstDate: DateTime.now(),
+          lastDate: DateTime.now().add(const Duration(days: 3650)),
+        );
+        if (date != null) onSelected(date);
+      },
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: const Icon(Icons.calendar_today, size: 20),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+        child: Text(selectedDate != null ? '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}' : 'Select date'),
+      ),
+    );
+  }
+
+  void _showAddContractorDialog() {
+    _clearContractorForm();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add New Contractor'),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: MediaQuery.of(context).size.height * 0.7,
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                _buildTextField(_companyNameController, 'Company Name', Icons.business),
+                const SizedBox(height: 12),
+                _buildTextField(_registrationNumberController, 'Registration Number', Icons.numbers),
+                const SizedBox(height: 12),
+                _buildTextField(_contactPersonController, 'Contact Person', Icons.person),
+                const SizedBox(height: 12),
+                _buildTextField(_contactPhoneController, 'Phone Number', Icons.phone),
+                const SizedBox(height: 12),
+                _buildTextField(_contactEmailController, 'Email', Icons.email),
+                const SizedBox(height: 12),
+                _buildTextField(_companyAddressController, 'Address', Icons.location_on),
+                const SizedBox(height: 12),
+                _buildDatePicker('Contract Start', _selectedContractStart, (date) {
+                  setState(() => _selectedContractStart = date);
+                }),
+                const SizedBox(height: 12),
+                _buildDatePicker('Contract End', _selectedContractEnd, (date) {
+                  setState(() => _selectedContractEnd = date);
+                }),
+                const SizedBox(height: 12),
+                _buildTextField(_contractValueController, 'Contract Value (Rs.)', Icons.currency_rupee, isNumber: true),
+                const SizedBox(height: 12),
+                _buildTextField(_performanceBondController, 'Performance Bond (Rs.)', Icons.security, isNumber: true),
+                const SizedBox(height: 12),
+                _buildTextField(_performanceScoreController, 'Initial Performance Score (%)', Icons.star, isNumber: true),
+                const SizedBox(height: 12),
+                _buildTextField(_slaComplianceController, 'SLA Compliance (%)', Icons.timer, isNumber: true),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: _addContractor,
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+            child: const Text('Add Contractor'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -222,51 +606,48 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
       );
     }
 
-    return DefaultTabController(
-      length: 3,
-      child: Scaffold(
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: const Text('Privatization Management'),
         backgroundColor: Colors.white,
-        appBar: AppBar(
-          title: const Text('Privatization Management'),
-          backgroundColor: Colors.white,
-          elevation: 0,
-          foregroundColor: Colors.black,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.grey),
-            onPressed: () => Navigator.pop(context),
-          ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.add, color: Colors.blue),
-              onPressed: () => _showAddContractorDialog(),
-              tooltip: 'Add Contractor',
-            ),
-            IconButton(
-              icon: const Icon(Icons.refresh, color: Colors.grey),
-              onPressed: _loadData,
-              tooltip: 'Refresh',
-            ),
-          ],
-          bottom: TabBar(
-            controller: _tabController,
-            tabs: const [
-              Tab(text: 'Contractors'),
-              Tab(text: 'Zone Assignments'),
-              Tab(text: 'Active Tenders'),
-            ],
-            labelColor: Colors.blue,
-            unselectedLabelColor: Colors.grey,
-            indicatorColor: Colors.blue,
-          ),
+        elevation: 0,
+        foregroundColor: Colors.black,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.grey),
+          onPressed: () => Navigator.pop(context),
         ),
-        body: TabBarView(
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add, color: Colors.blue),
+            onPressed: () => _showAddContractorDialog(),
+            tooltip: 'Add Contractor',
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.grey),
+            onPressed: _loadData,
+            tooltip: 'Refresh',
+          ),
+        ],
+        bottom: TabBar(
           controller: _tabController,
-          children: [
-            _buildContractorsTab(),
-            _buildZoneAssignmentsTab(),
-            _buildTendersTab(),
+          tabs: const [
+            Tab(text: 'Contractors'),
+            Tab(text: 'Zone Assignments'),
+            Tab(text: 'Active Tenders'),
           ],
+          labelColor: Colors.blue,
+          unselectedLabelColor: Colors.grey,
+          indicatorColor: Colors.blue,
         ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildContractorsTab(),
+          _buildZoneAssignmentsTab(),
+          _buildTendersTab(),
+        ],
       ),
     );
   }
@@ -394,16 +775,20 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
                           ),
                         ],
                       ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.blue[50],
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          'ID: ${contractor.contractorId.substring(0, 8)}...',
-                          style: TextStyle(fontSize: 10, color: Colors.blue[700]),
-                        ),
+                      Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.edit, size: 20, color: Colors.blue),
+                            onPressed: () => _updateContractor(contractor),
+                            tooltip: 'Edit',
+                          ),
+                          if (contractor.isActive == true)
+                            IconButton(
+                              icon: const Icon(Icons.block, size: 20, color: Colors.red),
+                              onPressed: () => _deactivateContractor(contractor),
+                              tooltip: 'Deactivate',
+                            ),
+                        ],
                       ),
                     ],
                   ),
@@ -705,16 +1090,6 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
     return '${date.day}/${date.month}/${date.year}';
   }
 
-  void _showAddContractorDialog() {
-    // This would be implemented to add new contractors
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Add contractor feature coming soon'),
-        backgroundColor: Colors.orange,
-      ),
-    );
-  }
-
   void _showAssignContractorDialog(Map<String, dynamic> zone) {
     if (_contractors.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -779,6 +1154,16 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
   @override
   void dispose() {
     _tabController.dispose();
+    _companyNameController.dispose();
+    _registrationNumberController.dispose();
+    _contactPersonController.dispose();
+    _contactPhoneController.dispose();
+    _contactEmailController.dispose();
+    _companyAddressController.dispose();
+    _contractValueController.dispose();
+    _performanceBondController.dispose();
+    _performanceScoreController.dispose();
+    _slaComplianceController.dispose();
     super.dispose();
   }
 }
