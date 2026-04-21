@@ -973,4 +973,31 @@ class ContractorService {
       throw Exception('Failed to add performance record');
     }
   }
+  // Add this method to ContractorService class
+  Future<Map<String, dynamic>> createContractorWithPassword(Map<String, dynamic> requestData) async {
+    try {
+      print('📡 Creating new contractor with user account');
+      final url = '${ApiConfig.baseUrl}/contractors/create';
+      print('📍 URL: $url');
+
+      final response = await http.post(
+        Uri.parse(url),
+        headers: ApiConfig.getHeaders(),
+        body: json.encode(requestData),
+      ).timeout(const Duration(seconds: 10));
+
+      print('📡 Response status: ${response.statusCode}');
+      print('📡 Response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        final error = json.decode(response.body);
+        throw Exception(error['Message'] ?? 'Failed to create contractor');
+      }
+    } catch (e) {
+      print('❌ Error creating contractor: $e');
+      throw Exception('Failed to create contractor: $e');
+    }
+  }
 }

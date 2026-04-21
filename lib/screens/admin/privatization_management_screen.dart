@@ -30,6 +30,7 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
   final TextEditingController _contactPersonController = TextEditingController();
   final TextEditingController _contactPhoneController = TextEditingController();
   final TextEditingController _contactEmailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController(); // NEW: Password field
   final TextEditingController _companyAddressController = TextEditingController();
   final TextEditingController _contractValueController = TextEditingController();
   final TextEditingController _performanceBondController = TextEditingController();
@@ -101,6 +102,7 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
           _availableZones = List<Map<String, dynamic>>.from(zones);
           _isLoadingZones = false;
         });
+        print('✅ Loaded ${_availableZones.length} zones from database');
       }
     } catch (e) {
       print('❌ Error loading zones: $e');
@@ -190,6 +192,16 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
       return;
     }
 
+    if (_passwordController.text.isEmpty) {
+      _showErrorDialog('Please enter password');
+      return;
+    }
+
+    if (_passwordController.text.length < 6) {
+      _showErrorDialog('Password must be at least 6 characters');
+      return;
+    }
+
     if (_selectedContractStart == null) {
       _showErrorDialog('Please select contract start date');
       return;
@@ -207,27 +219,24 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
         builder: (_) => const Center(child: CircularProgressIndicator()),
       );
 
-      final contractor = Contractor(
-        contractorId: '',
-        companyName: _companyNameController.text.trim(),
-        companyRegistrationNumber: _registrationNumberController.text.trim(),
-        contactPersonName: _contactPersonController.text.trim(),
-        contactPersonPhone: _contactPhoneController.text.trim(),
-        contactEmail: _contactEmailController.text.trim(),
-        companyAddress: _companyAddressController.text.trim(),
-        contractStart: _selectedContractStart!,
-        contractEnd: _selectedContractEnd!,
-        contractValue: double.tryParse(_contractValueController.text) ?? 0,
-        performanceBond: double.tryParse(_performanceBondController.text) ?? 0,
-        performanceScore: double.tryParse(_performanceScoreController.text) ?? 0,
-        slaComplianceRate: double.tryParse(_slaComplianceController.text) ?? 0,
-        isActive: true,
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      );
+      // Use the new request format with password
+      final requestData = {
+        'companyName': _companyNameController.text.trim(),
+        'companyRegistrationNumber': _registrationNumberController.text.trim(),
+        'contactPersonName': _contactPersonController.text.trim(),
+        'contactPersonPhone': _contactPhoneController.text.trim(),
+        'email': _contactEmailController.text.trim(),
+        'password': _passwordController.text.trim(), // NEW: Password field
+        'companyAddress': _companyAddressController.text.trim(),
+        'contractStart': _selectedContractStart!.toIso8601String(),
+        'contractEnd': _selectedContractEnd!.toIso8601String(),
+        'contractValue': double.tryParse(_contractValueController.text) ?? 0,
+        'performanceBond': double.tryParse(_performanceBondController.text) ?? 0,
+        'performanceScore': double.tryParse(_performanceScoreController.text) ?? 0,
+        'slaComplianceRate': double.tryParse(_slaComplianceController.text) ?? 0,
+      };
 
-      // Call API to create contractor
-      await _contractorService.createContractor(contractor);
+      await _contractorService.createContractorWithPassword(requestData);
 
       if (!mounted) return;
       Navigator.pop(context); // Close loading dialog
@@ -431,6 +440,7 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
     _contactPersonController.clear();
     _contactPhoneController.clear();
     _contactEmailController.clear();
+    _passwordController.clear(); // NEW
     _companyAddressController.clear();
     _contractValueController.clear();
     _performanceBondController.clear();
@@ -444,6 +454,7 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
     return TextField(
       controller: controller,
       keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+      obscureText: label.toLowerCase().contains('password'),
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon, size: 20),
@@ -482,7 +493,7 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
         title: const Text('Add New Contractor'),
         content: SizedBox(
           width: double.maxFinite,
-          height: MediaQuery.of(context).size.height * 0.7,
+          height: MediaQuery.of(context).size.height * 0.75,
           child: SingleChildScrollView(
             child: Column(
               children: [
@@ -495,6 +506,8 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
                 _buildTextField(_contactPhoneController, 'Phone Number', Icons.phone),
                 const SizedBox(height: 12),
                 _buildTextField(_contactEmailController, 'Email', Icons.email),
+                const SizedBox(height: 12),
+                _buildTextField(_passwordController, 'Password', Icons.lock, isNumber: false), // NEW
                 const SizedBox(height: 12),
                 _buildTextField(_companyAddressController, 'Address', Icons.location_on),
                 const SizedBox(height: 12),
@@ -620,7 +633,7 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
         actions: [
           IconButton(
             icon: const Icon(Icons.add, color: Colors.blue),
-            onPressed: () => _showAddContractorDialog(),
+            onPressed: _showAddContractorDialog,
             tooltip: 'Add Contractor',
           ),
           IconButton(
@@ -1159,6 +1172,7 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
     _contactPersonController.dispose();
     _contactPhoneController.dispose();
     _contactEmailController.dispose();
+    _passwordController.dispose();
     _companyAddressController.dispose();
     _contractValueController.dispose();
     _performanceBondController.dispose();
