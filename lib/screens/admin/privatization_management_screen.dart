@@ -30,7 +30,7 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
   final TextEditingController _contactPersonController = TextEditingController();
   final TextEditingController _contactPhoneController = TextEditingController();
   final TextEditingController _contactEmailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController(); // NEW: Password field
+  final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _companyAddressController = TextEditingController();
   final TextEditingController _contractValueController = TextEditingController();
   final TextEditingController _performanceBondController = TextEditingController();
@@ -56,7 +56,6 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
     try {
       print('📡 Loading contractors and available zones...');
 
-      // Load contractors and zones in parallel
       final results = await Future.wait([
         _contractorService.getAllContractors().catchError((e) {
           print('❌ Error loading contractors: $e');
@@ -115,7 +114,21 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
     }
   }
 
+  // =====================================================
+  // FIXED: _assignContractorToZone with validation
+  // =====================================================
   Future<void> _assignContractorToZone(String contractorId, String zoneId) async {
+    // Validate zoneId
+    if (zoneId.isEmpty || zoneId == 'null') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Error: Invalid zone ID'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     try {
       showDialog(
         context: context,
@@ -125,6 +138,8 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
 
       final userId = await _authService.getUserId();
       if (userId == null) throw Exception('User not logged in');
+
+      print('📡 Assigning contractor $contractorId to zone $zoneId');
 
       await _contractorService.assignContractorToZone(
         contractorId: contractorId,
@@ -139,9 +154,7 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
 
       if (!mounted) return;
 
-      Navigator.pop(context); // Close loading dialog
-
-      // Refresh zones only
+      Navigator.pop(context);
       await _loadZonesOnly();
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -152,9 +165,7 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
       );
     } catch (e) {
       if (!mounted) return;
-
-      Navigator.pop(context); // Close loading dialog
-
+      Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error: $e'),
@@ -166,47 +177,38 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
   }
 
   Future<void> _addContractor() async {
-    // Validate form
     if (_companyNameController.text.isEmpty) {
       _showErrorDialog('Please enter company name');
       return;
     }
-
     if (_registrationNumberController.text.isEmpty) {
       _showErrorDialog('Please enter registration number');
       return;
     }
-
     if (_contactPersonController.text.isEmpty) {
       _showErrorDialog('Please enter contact person name');
       return;
     }
-
     if (_contactPhoneController.text.isEmpty) {
       _showErrorDialog('Please enter contact phone');
       return;
     }
-
     if (_contactEmailController.text.isEmpty) {
       _showErrorDialog('Please enter contact email');
       return;
     }
-
     if (_passwordController.text.isEmpty) {
       _showErrorDialog('Please enter password');
       return;
     }
-
     if (_passwordController.text.length < 6) {
       _showErrorDialog('Password must be at least 6 characters');
       return;
     }
-
     if (_selectedContractStart == null) {
       _showErrorDialog('Please select contract start date');
       return;
     }
-
     if (_selectedContractEnd == null) {
       _showErrorDialog('Please select contract end date');
       return;
@@ -219,14 +221,13 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
         builder: (_) => const Center(child: CircularProgressIndicator()),
       );
 
-      // Use the new request format with password
       final requestData = {
         'companyName': _companyNameController.text.trim(),
         'companyRegistrationNumber': _registrationNumberController.text.trim(),
         'contactPersonName': _contactPersonController.text.trim(),
         'contactPersonPhone': _contactPhoneController.text.trim(),
         'email': _contactEmailController.text.trim(),
-        'password': _passwordController.text.trim(), // NEW: Password field
+        'password': _passwordController.text.trim(),
         'companyAddress': _companyAddressController.text.trim(),
         'contractStart': _selectedContractStart!.toIso8601String(),
         'contractEnd': _selectedContractEnd!.toIso8601String(),
@@ -239,10 +240,8 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
       await _contractorService.createContractorWithPassword(requestData);
 
       if (!mounted) return;
-      Navigator.pop(context); // Close loading dialog
-      Navigator.pop(context); // Close add contractor dialog
-
-      // Refresh contractors list
+      Navigator.pop(context);
+      Navigator.pop(context);
       await _loadData();
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -252,17 +251,15 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
         ),
       );
 
-      // Clear form
       _clearContractorForm();
     } catch (e) {
       if (!mounted) return;
-      Navigator.pop(context); // Close loading dialog
+      Navigator.pop(context);
       _showErrorDialog('Failed to add contractor: $e');
     }
   }
 
   Future<void> _updateContractor(Contractor contractor) async {
-    // Show edit dialog
     _companyNameController.text = contractor.companyName;
     _registrationNumberController.text = contractor.companyRegistrationNumber ?? '';
     _contactPersonController.text = contractor.contactPersonName ?? '';
@@ -440,7 +437,7 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
     _contactPersonController.clear();
     _contactPhoneController.clear();
     _contactEmailController.clear();
-    _passwordController.clear(); // NEW
+    _passwordController.clear();
     _companyAddressController.clear();
     _contractValueController.clear();
     _performanceBondController.clear();
@@ -507,7 +504,7 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
                 const SizedBox(height: 12),
                 _buildTextField(_contactEmailController, 'Email', Icons.email),
                 const SizedBox(height: 12),
-                _buildTextField(_passwordController, 'Password', Icons.lock, isNumber: false), // NEW
+                _buildTextField(_passwordController, 'Password', Icons.lock),
                 const SizedBox(height: 12),
                 _buildTextField(_companyAddressController, 'Address', Icons.location_on),
                 const SizedBox(height: 12),
@@ -1103,6 +1100,9 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
     return '${date.day}/${date.month}/${date.year}';
   }
 
+  // =====================================================
+  // FIXED: _showAssignContractorDialog with proper zoneId extraction
+  // =====================================================
   void _showAssignContractorDialog(Map<String, dynamic> zone) {
     if (_contractors.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1114,15 +1114,42 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
       return;
     }
 
+    // Debug: Print zone object to see available keys
+    print('🔍 Zone object: $zone');
+    print('🔍 Zone keys: ${zone.keys}');
+
+    // Try multiple possible key names for zoneId
+    final zoneId = zone['zoneId'] ??
+        zone['id'] ??
+        zone['ZoneId'] ??
+        zone['Id'] ??
+        zone['zone_id'];
+
+    final zoneName = zone['zoneName'] ??
+        zone['name'] ??
+        zone['ZoneName'] ??
+        'Zone';
+
+    print('🔍 Extracted Zone ID: $zoneId');
+    print('🔍 Zone Name: $zoneName');
+
+    if (zoneId == null || zoneId.toString().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Invalid zone data: Zone ID not found'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Assign Contractor to ${zone['zoneName']}'),
+        title: Text('Assign Contractor to $zoneName'),
         content: SizedBox(
           width: double.maxFinite,
-          child: _contractors.isEmpty
-              ? const Center(child: Text('No contractors available'))
-              : ListView.builder(
+          child: ListView.builder(
             shrinkWrap: true,
             itemCount: _contractors.length,
             itemBuilder: (context, index) {
@@ -1147,7 +1174,7 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
                   ),
                   onTap: () {
                     Navigator.pop(context);
-                    _assignContractorToZone(contractor.contractorId, zone['zoneId']);
+                    _assignContractorToZone(contractor.contractorId, zoneId.toString());
                   },
                 ),
               );
