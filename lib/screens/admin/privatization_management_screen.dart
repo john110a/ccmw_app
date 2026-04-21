@@ -43,7 +43,7 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 2, vsync: this); // Changed to 2 tabs
     _loadData();
   }
 
@@ -76,6 +76,11 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
 
         print('✅ Loaded ${_contractors.length} contractors');
         print('✅ Loaded ${_availableZones.length} available zones');
+
+        if (_availableZones.isNotEmpty) {
+          print('🔍 First zone data: ${_availableZones[0]}');
+          print('🔍 First zone keys: ${_availableZones[0].keys}');
+        }
       }
     } catch (e) {
       print('❌ Error loading data: $e');
@@ -102,6 +107,10 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
           _isLoadingZones = false;
         });
         print('✅ Loaded ${_availableZones.length} zones from database');
+
+        for (int i = 0; i < _availableZones.length; i++) {
+          print('🔍 Zone $i: ${_availableZones[i]}');
+        }
       }
     } catch (e) {
       print('❌ Error loading zones: $e');
@@ -114,11 +123,7 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
     }
   }
 
-  // =====================================================
-  // FIXED: _assignContractorToZone with validation
-  // =====================================================
   Future<void> _assignContractorToZone(String contractorId, String zoneId) async {
-    // Validate zoneId
     if (zoneId.isEmpty || zoneId == 'null') {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -452,10 +457,22 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
       controller: controller,
       keyboardType: isNumber ? TextInputType.number : TextInputType.text,
       obscureText: label.toLowerCase().contains('password'),
+      style: const TextStyle(color: Colors.black),
       decoration: InputDecoration(
         labelText: label,
-        prefixIcon: Icon(icon, size: 20),
+        labelStyle: TextStyle(color: Colors.grey[700]),
+        prefixIcon: Icon(icon, size: 20, color: Colors.grey[700]),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: Colors.grey[400]!),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.blue, width: 2),
+        ),
+        filled: true,
+        fillColor: Colors.white,
       ),
     );
   }
@@ -474,10 +491,24 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
       child: InputDecorator(
         decoration: InputDecoration(
           labelText: label,
-          prefixIcon: const Icon(Icons.calendar_today, size: 20),
+          labelStyle: TextStyle(color: Colors.grey[700]),
+          prefixIcon: Icon(Icons.calendar_today, size: 20, color: Colors.grey[700]),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(color: Colors.grey[400]!),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: Colors.blue, width: 2),
+          ),
+          filled: true,
+          fillColor: Colors.white,
         ),
-        child: Text(selectedDate != null ? '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}' : 'Select date'),
+        child: Text(
+          selectedDate != null ? '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}' : 'Select date',
+          style: const TextStyle(color: Colors.black),
+        ),
       ),
     );
   }
@@ -644,7 +675,6 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
           tabs: const [
             Tab(text: 'Contractors'),
             Tab(text: 'Zone Assignments'),
-            Tab(text: 'Active Tenders'),
           ],
           labelColor: Colors.blue,
           unselectedLabelColor: Colors.grey,
@@ -656,7 +686,6 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
         children: [
           _buildContractorsTab(),
           _buildZoneAssignmentsTab(),
-          _buildTendersTab(),
         ],
       ),
     );
@@ -780,7 +809,7 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
                           const Icon(Icons.star, size: 16, color: Colors.amber),
                           const SizedBox(width: 4),
                           Text(
-                            'Performance: ${contractor.performanceScore?.toStringAsFixed(1) ?? '0'}%',
+                            'Performance: ${contractor.performanceScore?.toStringAsFixed(1) ?? "0"}%',
                             style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
                           ),
                         ],
@@ -884,7 +913,32 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
         itemCount: _availableZones.length,
         itemBuilder: (context, index) {
           final zone = _availableZones[index];
-          final hasContractor = zone['hasContractor'] == true;
+
+          final String zoneName = _getSafeStringValue(zone, 'zoneName') ??
+              _getSafeStringValue(zone, 'name') ??
+              _getSafeStringValue(zone, 'ZoneName') ??
+              _getSafeStringValue(zone, 'Name') ??
+              _getSafeStringValue(zone, 'zone_name') ??
+              'Unknown Zone';
+
+          final String zoneNumber = _getSafeStringValue(zone, 'zoneNumber') ??
+              _getSafeStringValue(zone, 'number') ??
+              _getSafeStringValue(zone, 'ZoneNumber') ??
+              _getSafeStringValue(zone, 'Number') ??
+              'N/A';
+
+          final String city = _getSafeStringValue(zone, 'city') ??
+              _getSafeStringValue(zone, 'City') ??
+              _getSafeStringValue(zone, 'CITY') ??
+              'City';
+
+          final bool hasContractor = (zone['hasContractor'] == true) ||
+              (zone['HasContractor'] == true) ||
+              (zone['isAssigned'] == true);
+
+          final int activeComplaints = (zone['activeComplaints'] ??
+              zone['ActiveComplaints'] ??
+              zone['complaintCount'] ?? 0) as int;
 
           return Card(
             margin: const EdgeInsets.only(bottom: 12),
@@ -915,12 +969,12 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              zone['zoneName'] ?? 'Unknown Zone',
-                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                              zoneName,
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.black),
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Zone #${zone['zoneNumber'] ?? 'N/A'} • ${zone['city'] ?? 'City'}',
+                              'Zone #$zoneNumber • $city',
                               style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                             ),
                           ],
@@ -937,8 +991,8 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
                           const Icon(Icons.warning, size: 14, color: Colors.orange),
                           const SizedBox(width: 4),
                           Text(
-                            'Active Complaints: ${zone['activeComplaints'] ?? 0}',
-                            style: const TextStyle(fontSize: 12),
+                            'Active Complaints: $activeComplaints',
+                            style: const TextStyle(fontSize: 12, color: Colors.black),
                           ),
                         ],
                       ),
@@ -968,25 +1022,12 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
     );
   }
 
-  Widget _buildTendersTab() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.description, size: 64, color: Colors.grey[400]),
-          const SizedBox(height: 16),
-          Text(
-            'Tenders Coming Soon',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[800]),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'This feature is under development',
-            style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-          ),
-        ],
-      ),
-    );
+  String? _getSafeStringValue(Map<String, dynamic> map, String key) {
+    final value = map[key];
+    if (value == null) return null;
+    final stringValue = value.toString();
+    if (stringValue.isEmpty || stringValue == 'null') return null;
+    return stringValue;
   }
 
   void _showContractorDetails(Contractor contractor) {
@@ -1056,10 +1097,10 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
                       const SizedBox(height: 8),
                       _buildDetailRow('Start Date', _formatDate(contractor.contractStart)),
                       _buildDetailRow('End Date', _formatDate(contractor.contractEnd)),
-                      _buildDetailRow('Contract Value', 'Rs. ${contractor.contractValue?.toStringAsFixed(0) ?? '0'}'),
-                      _buildDetailRow('Performance Bond', 'Rs. ${contractor.performanceBond?.toStringAsFixed(0) ?? '0'}'),
-                      _buildDetailRow('Performance Score', '${contractor.performanceScore?.toStringAsFixed(1) ?? '0'}%'),
-                      _buildDetailRow('SLA Compliance', '${contractor.slaComplianceRate?.toStringAsFixed(1) ?? '0'}%'),
+                      _buildDetailRow('Contract Value', 'Rs. ${(contractor.contractValue ?? 0).toStringAsFixed(0)}'),
+                      _buildDetailRow('Performance Bond', 'Rs. ${(contractor.performanceBond ?? 0).toStringAsFixed(0)}'),
+                      _buildDetailRow('Performance Score', '${(contractor.performanceScore ?? 0).toStringAsFixed(1)}%'),
+                      _buildDetailRow('SLA Compliance', '${(contractor.slaComplianceRate ?? 0).toStringAsFixed(1)}%'),
                     ],
                   ),
                 ),
@@ -1087,7 +1128,7 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13, color: Colors.black),
             ),
           ),
         ],
@@ -1100,9 +1141,6 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
     return '${date.day}/${date.month}/${date.year}';
   }
 
-  // =====================================================
-  // FIXED: _showAssignContractorDialog with proper zoneId extraction
-  // =====================================================
   void _showAssignContractorDialog(Map<String, dynamic> zone) {
     if (_contractors.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1114,26 +1152,35 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
       return;
     }
 
-    // Debug: Print zone object to see available keys
-    print('🔍 Zone object: $zone');
-    print('🔍 Zone keys: ${zone.keys}');
+    String? zoneId;
+    for (var key in zone.keys) {
+      if (key.toLowerCase().contains('id')) {
+        final value = zone[key];
+        if (value != null) {
+          final stringValue = value.toString();
+          if (stringValue.isNotEmpty && stringValue != 'null') {
+            zoneId = stringValue;
+            break;
+          }
+        }
+      }
+    }
 
-    // Try multiple possible key names for zoneId
-    final zoneId = zone['zoneId'] ??
-        zone['id'] ??
-        zone['ZoneId'] ??
-        zone['Id'] ??
-        zone['zone_id'];
+    String zoneName = 'Zone';
+    for (var key in zone.keys) {
+      if (key.toLowerCase().contains('name')) {
+        final value = zone[key];
+        if (value != null) {
+          final stringValue = value.toString();
+          if (stringValue.isNotEmpty && stringValue != 'null') {
+            zoneName = stringValue;
+            break;
+          }
+        }
+      }
+    }
 
-    final zoneName = zone['zoneName'] ??
-        zone['name'] ??
-        zone['ZoneName'] ??
-        'Zone';
-
-    print('🔍 Extracted Zone ID: $zoneId');
-    print('🔍 Zone Name: $zoneName');
-
-    if (zoneId == null || zoneId.toString().isEmpty) {
+    if (zoneId == null || zoneId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Invalid zone data: Zone ID not found'),
@@ -1157,12 +1204,12 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
               return Card(
                 margin: const EdgeInsets.only(bottom: 8),
                 child: ListTile(
-                  title: Text(contractor.companyName),
+                  title: Text(contractor.companyName, style: const TextStyle(color: Colors.black)),
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Contact: ${contractor.contactPersonName ?? 'N/A'}'),
-                      Text('Performance: ${contractor.performanceScore?.toStringAsFixed(1) ?? '0'}%'),
+                      Text('Contact: ${contractor.contactPersonName ?? 'N/A'}', style: const TextStyle(color: Colors.black87)),
+                      Text('Performance: ${(contractor.performanceScore ?? 0).toStringAsFixed(1)}%', style: const TextStyle(color: Colors.black87)),
                     ],
                   ),
                   leading: CircleAvatar(
@@ -1174,7 +1221,7 @@ class _PrivatizationManagementScreenState extends State<PrivatizationManagementS
                   ),
                   onTap: () {
                     Navigator.pop(context);
-                    _assignContractorToZone(contractor.contractorId, zoneId.toString());
+                    _assignContractorToZone(contractor.contractorId, zoneId!);
                   },
                 ),
               );

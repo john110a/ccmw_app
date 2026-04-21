@@ -66,9 +66,6 @@ class ContractorService {
 
       if (response.statusCode == 200) {
         final dynamic data = json.decode(response.body);
-
-        // Your backend returns { Contractor, AssignedZones, PerformanceHistory, etc. }
-        // Extract the Contractor object
         final contractorData = data['Contractor'] ?? data;
         return Contractor.fromJson(contractorData);
       } else if (response.statusCode == 404) {
@@ -99,7 +96,6 @@ class ContractorService {
       if (response.statusCode == 200) {
         final dynamic data = json.decode(response.body);
 
-        // Handle response format - your backend returns { TotalContractors, ActiveContractors, Contractors }
         if (data is Map && data['Contractors'] != null && data['Contractors'] is List) {
           print('✅ Found ${data['Contractors'].length} contractors');
           return (data['Contractors'] as List).map((json) => Contractor.fromJson(json)).toList();
@@ -148,6 +144,34 @@ class ContractorService {
     }
   }
 
+  /// Create contractor with password (creates User + Contractor)
+  Future<Map<String, dynamic>> createContractorWithPassword(Map<String, dynamic> requestData) async {
+    try {
+      print('📡 Creating new contractor with user account');
+      final url = '${ApiConfig.baseUrl}/contractors/create';
+      print('📍 URL: $url');
+
+      final response = await http.post(
+        Uri.parse(url),
+        headers: ApiConfig.getHeaders(),
+        body: json.encode(requestData),
+      ).timeout(const Duration(seconds: 10));
+
+      print('📡 Response status: ${response.statusCode}');
+      print('📡 Response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        final error = json.decode(response.body);
+        throw Exception(error['Message'] ?? 'Failed to create contractor');
+      }
+    } catch (e) {
+      print('❌ Error creating contractor: $e');
+      throw Exception('Failed to create contractor: $e');
+    }
+  }
+
   /// Update an existing contractor
   Future<Map<String, dynamic>> updateContractor(String contractorId, Contractor contractor) async {
     try {
@@ -180,7 +204,6 @@ class ContractorService {
   Future<Map<String, dynamic>> deleteContractor(String contractorId) async {
     try {
       print('📡 Deactivating contractor: $contractorId');
-      // First get the contractor, then update isActive to false
       final contractor = await getContractorProfile(contractorId);
 
       final updatedContractor = Contractor(
@@ -210,7 +233,7 @@ class ContractorService {
   }
 
   // =====================================================
-  // 3. ZONE MANAGEMENT
+  // 3. ZONE MANAGEMENT - FIXED VERSION
   // =====================================================
 
   /// Get all zones assigned to contractor
@@ -229,9 +252,6 @@ class ContractorService {
 
       if (response.statusCode == 200) {
         final dynamic data = json.decode(response.body);
-        print('📦 Response data keys: ${data.keys}');
-
-        // Your backend returns { ContractorId, CompanyName, TotalZones, Zones }
         if (data is Map && data['Zones'] != null && data['Zones'] is List) {
           print('✅ Found ${data['Zones'].length} assigned zones');
           return (data['Zones'] as List).map((json) => ContractorZone.fromJson(json)).toList();
@@ -280,13 +300,12 @@ class ContractorService {
     }
   }
 
-  /// Get available zones for assignment
+  /// Get available zones for assignment - FIXED VERSION
   Future<List<Map<String, dynamic>>> getAvailableZones() async {
     try {
-      // Try the exact endpoints from your backend
       List<String> endpointsToTry = [
-        '${ApiConfig.baseUrl}/privatization/zones/available',
         '${ApiConfig.baseUrl}/contractor-zones/available-zones',
+        '${ApiConfig.baseUrl}/privatization/zones/available',
         '${ApiConfig.baseUrl}/zones/available',
       ];
 
@@ -303,6 +322,7 @@ class ContractorService {
 
           if (response.statusCode == 200) {
             final dynamic data = json.decode(response.body);
+            print('📦 Raw response from $endpoint: ${response.body}');
 
             List<dynamic> zonesList = [];
 
@@ -319,15 +339,65 @@ class ContractorService {
             if (zonesList.isNotEmpty) {
               print('✅ Found ${zonesList.length} available zones from $endpoint');
 
+              if (zonesList.isNotEmpty) {
+                print('🔍 First zone from API: ${zonesList[0]}');
+                print('🔍 First zone keys: ${zonesList[0].keys}');
+              }
+
+              // Format the zones consistently for the UI - FIXED to handle different key names
               return zonesList.map((zone) {
+                // Try multiple possible key names for zoneId (case-sensitive)
+                final zoneId = zone['ZoneId']?.toString() ??
+                    zone['zoneId']?.toString() ??
+                    zone['Id']?.toString() ??
+                    zone['id']?.toString() ?? '';
+
+                // Try multiple possible key names for zoneName (case-sensitive)
+                final zoneName = zone['ZoneName']?.toString() ??
+                    zone['zoneName']?.toString() ??
+                    zone['Name']?.toString() ??
+                    zone['name']?.toString() ??
+                    zone['Title']?.toString() ??
+                    'Unknown Zone';
+
+                // Try multiple possible key names for zoneNumber
+                final zoneNumber = zone['ZoneNumber']?.toString() ??
+                    zone['zoneNumber']?.toString() ??
+                    zone['Number']?.toString() ??
+                    zone['number']?.toString() ??
+                    'N/A';
+
+                // Try multiple possible key names for city
+                final city = zone['City']?.toString() ??
+                    zone['city']?.toString() ??
+                    zone['CITY']?.toString() ??
+                    'City';
+
+                // Try multiple possible key names for province
+                final province = zone['Province']?.toString() ??
+                    zone['province']?.toString() ??
+                    '';
+
+                final hasContractor = zone['hasContractor'] == true ||
+                    zone['HasContractor'] == true ||
+                    zone['isAssigned'] == true ||
+                    zone['IsAssigned'] == true;
+
+                final activeComplaints = zone['activeComplaints'] ??
+                    zone['ActiveComplaints'] ??
+                    zone['complaintCount'] ??
+                    zone['ComplaintCount'] ?? 0;
+
+                print('📋 Mapped zone: $zoneName (ID: $zoneId, Number: $zoneNumber, City: $city)');
+
                 return {
-                  'zoneId': zone['zoneId']?.toString() ?? zone['id']?.toString() ?? '',
-                  'zoneName': zone['zoneName']?.toString() ?? zone['name']?.toString() ?? 'Unknown Zone',
-                  'zoneNumber': zone['zoneNumber']?.toString() ?? zone['number']?.toString() ?? 'N/A',
-                  'city': zone['city']?.toString() ?? zone['City']?.toString() ?? 'City',
-                  'province': zone['province']?.toString() ?? zone['Province']?.toString() ?? '',
-                  'hasContractor': zone['hasContractor'] == true || zone['hasContractor'] == 'true',
-                  'activeComplaints': zone['activeComplaints'] ?? zone['complaintCount'] ?? zone['ActiveComplaints'] ?? 0,
+                  'zoneId': zoneId,
+                  'zoneName': zoneName,
+                  'zoneNumber': zoneNumber,
+                  'city': city,
+                  'province': province,
+                  'hasContractor': hasContractor,
+                  'activeComplaints': activeComplaints,
                 };
               }).toList();
             } else {
@@ -446,7 +516,6 @@ class ContractorService {
 
       if (response.statusCode == 200) {
         final dynamic data = json.decode(response.body);
-
         if (data is List) {
           return List<Map<String, dynamic>>.from(data);
         } else if (data is Map && data['history'] != null && data['history'] is List) {
@@ -454,7 +523,6 @@ class ContractorService {
         } else if (data is Map && data['data'] != null && data['data'] is List) {
           return List<Map<String, dynamic>>.from(data['data']);
         }
-
         return [];
       } else if (response.statusCode == 404) {
         print('ℹ️ No assignment history found');
@@ -490,7 +558,6 @@ class ContractorService {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         print('✅ Dashboard loaded successfully');
-        print('📦 Response keys: ${data.keys}');
         return data;
       } else if (response.statusCode == 404) {
         throw Exception('Contractor not found');
@@ -527,7 +594,6 @@ class ContractorService {
 
       if (response.statusCode == 200) {
         final dynamic data = json.decode(response.body);
-
         List<dynamic> complaintsList = [];
 
         if (data is List) {
@@ -624,7 +690,6 @@ class ContractorService {
       print('📍 URL: $url');
 
       var request = http.MultipartRequest('POST', Uri.parse(url));
-
       request.files.add(
         await http.MultipartFile.fromPath(
           'file',
@@ -635,7 +700,6 @@ class ContractorService {
 
       var response = await request.send();
       print('📡 Upload response status: ${response.statusCode}');
-
       return response.statusCode == 200;
     } catch (e) {
       print('❌ Upload failed: $e');
@@ -690,8 +754,6 @@ class ContractorService {
 
       if (response.statusCode == 200) {
         final dynamic data = json.decode(response.body);
-
-        // Your backend returns PerformanceHistory in the response
         if (data is Map && data['PerformanceHistory'] != null && data['PerformanceHistory'] is List) {
           print('✅ Found ${data['PerformanceHistory'].length} performance records');
           return (data['PerformanceHistory'] as List)
@@ -715,7 +777,6 @@ class ContractorService {
   Future<Map<String, dynamic>> getPerformanceSummary(String contractorId) async {
     try {
       final history = await getPerformanceHistory(contractorId);
-
       if (history.isEmpty) {
         return {
           'totalComplaints': 0,
@@ -726,20 +787,11 @@ class ContractorService {
         };
       }
 
-      // Calculate averages from history
       final latest = history.first;
-      final totalComplaints = history.fold<int>(
-          0, (sum, item) => sum + item.complaintsHandled
-      );
-      final totalResolved = history.fold<int>(
-          0, (sum, item) => sum + item.complaintsResolved
-      );
-      final avgSla = history.fold<double>(
-          0, (sum, item) => sum + item.slaComplianceRate
-      ) / history.length;
-      final avgScore = history.fold<double>(
-          0, (sum, item) => sum + item.performanceScore
-      ) / history.length;
+      final totalComplaints = history.fold<int>(0, (sum, item) => sum + item.complaintsHandled);
+      final totalResolved = history.fold<int>(0, (sum, item) => sum + item.complaintsResolved);
+      final avgSla = history.fold<double>(0, (sum, item) => sum + item.slaComplianceRate) / history.length;
+      final avgScore = history.fold<double>(0, (sum, item) => sum + item.performanceScore) / history.length;
 
       return {
         'totalComplaints': totalComplaints,
@@ -766,17 +818,11 @@ class ContractorService {
   }
 
   /// Get monthly performance report
-  Future<Map<String, dynamic>> getMonthlyReport(
-      String contractorId,
-      int year,
-      int month
-      ) async {
+  Future<Map<String, dynamic>> getMonthlyReport(String contractorId, int year, int month) async {
     try {
       final history = await getPerformanceHistory(contractorId);
-
       final monthlyData = history.where((item) =>
-      item.reviewPeriodStart.year == year &&
-          item.reviewPeriodStart.month == month
+      item.reviewPeriodStart.year == year && item.reviewPeriodStart.month == month
       ).toList();
 
       if (monthlyData.isEmpty) {
@@ -792,9 +838,7 @@ class ContractorService {
         'period': '${report.reviewPeriodStart.month}/${report.reviewPeriodStart.year}',
         'complaintsHandled': report.complaintsHandled,
         'complaintsResolved': report.complaintsResolved,
-        'resolutionRate': report.complaintsHandled > 0
-            ? (report.complaintsResolved / report.complaintsHandled * 100)
-            : 0,
+        'resolutionRate': report.complaintsHandled > 0 ? (report.complaintsResolved / report.complaintsHandled * 100) : 0,
         'averageResolutionTime': report.averageResolutionTimeDays,
         'slaCompliance': report.slaComplianceRate,
         'citizenRating': report.citizenSatisfactionScore,
@@ -830,7 +874,6 @@ class ContractorService {
 
       if (response.statusCode == 200) {
         final dynamic data = json.decode(response.body);
-
         List<dynamic> staffList = [];
         if (data is List) {
           staffList = data;
@@ -839,7 +882,6 @@ class ContractorService {
         } else if (data is Map && data['staff'] != null && data['staff'] is List) {
           staffList = data['staff'];
         }
-
         if (staffList.isNotEmpty) {
           return staffList.first['staffId']?.toString();
         }
@@ -867,7 +909,6 @@ class ContractorService {
 
       if (response.statusCode == 200) {
         final dynamic data = json.decode(response.body);
-
         if (data is List) {
           return data;
         } else if (data is Map && data['assignments'] != null && data['assignments'] is List) {
@@ -875,7 +916,6 @@ class ContractorService {
         } else if (data is Map && data['data'] != null && data['data'] is List) {
           return data['data'];
         }
-
         return [];
       } else {
         print('❌ Failed to load assignments: ${response.statusCode}');
@@ -888,10 +928,7 @@ class ContractorService {
   }
 
   /// Accept assignment
-  Future<Map<String, dynamic>> acceptAssignment(
-      String assignmentId,
-      String staffId
-      ) async {
+  Future<Map<String, dynamic>> acceptAssignment(String assignmentId, String staffId) async {
     try {
       print('📡 Accepting assignment: $assignmentId');
       final url = '${ApiConfig.baseUrl}/staff-actions/assignments/$assignmentId/accept?staffId=$staffId';
@@ -916,11 +953,7 @@ class ContractorService {
   }
 
   /// Resolve assignment
-  Future<Map<String, dynamic>> resolveAssignment(
-      String assignmentId,
-      String staffId,
-      String resolutionNotes
-      ) async {
+  Future<Map<String, dynamic>> resolveAssignment(String assignmentId, String staffId, String resolutionNotes) async {
     try {
       print('📡 Resolving assignment: $assignmentId');
       final url = '${ApiConfig.baseUrl}/staff-actions/assignments/$assignmentId/resolve?staffId=$staffId';
@@ -971,33 +1004,6 @@ class ContractorService {
     );
     if (response.statusCode != 200) {
       throw Exception('Failed to add performance record');
-    }
-  }
-  // Add this method to ContractorService class
-  Future<Map<String, dynamic>> createContractorWithPassword(Map<String, dynamic> requestData) async {
-    try {
-      print('📡 Creating new contractor with user account');
-      final url = '${ApiConfig.baseUrl}/contractors/create';
-      print('📍 URL: $url');
-
-      final response = await http.post(
-        Uri.parse(url),
-        headers: ApiConfig.getHeaders(),
-        body: json.encode(requestData),
-      ).timeout(const Duration(seconds: 10));
-
-      print('📡 Response status: ${response.statusCode}');
-      print('📡 Response body: ${response.body}');
-
-      if (response.statusCode == 200) {
-        return json.decode(response.body);
-      } else {
-        final error = json.decode(response.body);
-        throw Exception(error['Message'] ?? 'Failed to create contractor');
-      }
-    } catch (e) {
-      print('❌ Error creating contractor: $e');
-      throw Exception('Failed to create contractor: $e');
     }
   }
 }

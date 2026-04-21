@@ -18,7 +18,8 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
   final AuthService _authService = AuthService();
 
   List<Complaint> _allComplaints = [];
-  List<StaffProfile> _availableStaff = [];
+  List<StaffProfile> _allStaff = [];
+  List<StaffProfile> _filteredStaff = [];
   bool _isLoading = true;
   String? _errorMessage;
   String? _userRole;
@@ -65,7 +66,6 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
       List<StaffProfile> staff = [];
 
       if (_userRole == 'System_Admin') {
-        // System Admin: See ALL complaints and ALL staff
         print('📡 System Admin - Loading ALL complaints and staff');
         final results = await Future.wait([
           _assignmentService.getAllComplaintsForRouting(),
@@ -75,7 +75,6 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
         staff = results[1] as List<StaffProfile>;
       }
       else if (_userRole == 'Department_Admin') {
-        // Department Admin: See ONLY their department's complaints and staff
         if (_userDepartmentId == null) {
           throw Exception('Department Admin has no department assigned');
         }
@@ -98,7 +97,8 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
       if (mounted) {
         setState(() {
           _allComplaints = complaints;
-          _availableStaff = staff;
+          _allStaff = staff;
+          _filteredStaff = [];
           _isLoading = false;
         });
       }
@@ -126,22 +126,69 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
     return _allComplaints;
   }
 
+  // =====================================================
+  // FIXED: Filter staff by DEPARTMENT NAME instead of ID
+  // =====================================================
+  void _onComplaintSelected(Complaint complaint) {
+    setState(() {
+      _selectedComplaint = complaint;
+      _selectedStaff = null;
+
+      // Filter staff by department NAME (case-insensitive and trimmed)
+      _filteredStaff = _allStaff.where((staff) {
+        final complaintDeptName = complaint.departmentName?.toString().toLowerCase().trim() ?? '';
+        final staffDeptName = staff.departmentName?.toString().toLowerCase().trim() ?? '';
+        return complaintDeptName == staffDeptName;
+      }).toList();
+    });
+
+    print('📋 Selected complaint department: ${complaint.departmentName}');
+    print('📋 Available staff in this department: ${_filteredStaff.length}');
+
+    if (_filteredStaff.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'No staff available in ${complaint.departmentName ?? "this"} department',
+          ),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
   Future<void> _assignComplaint() async {
-    if (_selectedComplaint == null || _selectedStaff == null) {
+    if (_selectedComplaint == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please select both a complaint and staff member'),
+          content: Text('Please select a complaint first'),
           backgroundColor: Colors.red,
         ),
       );
       return;
     }
 
-    // Validate department match
-    if (_selectedComplaint!.departmentId != _selectedStaff!.departmentId) {
+    if (_selectedStaff == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select a staff member from the filtered list'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // FIXED: Validate department match by NAME instead of ID
+    final complaintDeptName = _selectedComplaint!.departmentName?.toString().toLowerCase().trim() ?? '';
+    final staffDeptName = _selectedStaff!.departmentName?.toString().toLowerCase().trim() ?? '';
+
+    if (complaintDeptName != staffDeptName) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Complaint and staff must be in the same department!'),
+          content: Text(
+            'Complaint (${_selectedComplaint!.departmentName}) and staff (${_selectedStaff!.departmentName}) must be in the same department!',
+          ),
           backgroundColor: Colors.red,
         ),
       );
@@ -185,6 +232,7 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                   Text('Zone: ${_selectedComplaint!.zoneName ?? 'Unknown'}'),
                   Text('Status: ${_getStatusText(_selectedComplaint!.currentStatus)}'),
                   Text('Priority: ${_selectedComplaint!.priority}'),
+                  const SizedBox(height: 8),
                   Text('Staff: ${_selectedStaff!.fullName ?? 'Unknown'}'),
                   Text('Department: ${_selectedStaff!.departmentName ?? 'N/A'}'),
                   Text('Pending Tasks: ${_selectedStaff!.pendingAssignments}'),
@@ -225,6 +273,7 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
         setState(() {
           _selectedComplaint = null;
           _selectedStaff = null;
+          _filteredStaff = [];
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
@@ -326,6 +375,27 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
     }
   }
 
+  Color _getDepartmentColor(String? departmentName) {
+    switch (departmentName?.toLowerCase()) {
+      case 'sanitation':
+      case 'rwmc - waste management':
+        return Colors.green;
+      case 'water & sewerage':
+      case 'wasa - water & sewerage':
+        return Colors.blue;
+      case 'electricity':
+      case 'wapda - electricity':
+        return Colors.amber;
+      case 'civic services':
+      case 'cda - civic services':
+        return Colors.orange;
+      case 'parks & recreation':
+        return Colors.teal;
+      default:
+        return Colors.grey;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -399,6 +469,8 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
     }
 
     final filteredComplaints = _filteredComplaints;
+    final hasSelectedComplaint = _selectedComplaint != null;
+    final hasMatchingStaff = _filteredStaff.isNotEmpty;
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
@@ -414,7 +486,6 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
           style: TextStyle(color: Colors.grey[900]),
         ),
         actions: [
-          // Department info for Department Admin
           if (_userRole == 'Department_Admin')
             Container(
               margin: const EdgeInsets.only(right: 8),
@@ -428,7 +499,6 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                 style: TextStyle(fontSize: 12, color: Colors.green[700]),
               ),
             ),
-          // Filter dropdown
           Container(
             margin: const EdgeInsets.only(right: 8),
             padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -450,6 +520,8 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                     setState(() {
                       _selectedFilter = value;
                       _selectedComplaint = null;
+                      _selectedStaff = null;
+                      _filteredStaff = [];
                     });
                   }
                 },
@@ -465,7 +537,6 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
       ),
       body: Column(
         children: [
-          // Stats Bar
           Container(
             padding: const EdgeInsets.all(16),
             color: Colors.white,
@@ -480,13 +551,12 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: _buildRoutingStat('${_availableStaff.length}', 'Available Staff'),
+                  child: _buildRoutingStat('${_allStaff.length}', 'Available Staff'),
                 ),
               ],
             ),
           ),
 
-          // Filter info
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
@@ -517,7 +587,6 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                 if (constraints.maxWidth > 600) {
                   return Row(
                     children: [
-                      // Left Panel - Complaints
                       Expanded(
                         child: Padding(
                           padding: const EdgeInsets.all(16),
@@ -552,10 +621,8 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                         ),
                       ),
 
-                      // Divider
                       Container(width: 1, color: Colors.grey[300]),
 
-                      // Right Panel - Available Staff
                       Expanded(
                         child: Padding(
                           padding: const EdgeInsets.all(16),
@@ -564,24 +631,49 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                             children: [
                               const Text('Available Staff', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                               const SizedBox(height: 8),
-                              Text('Select staff member to assign', style: TextStyle(fontSize: 14, color: Colors.grey[600])),
+                              Text(
+                                hasSelectedComplaint
+                                    ? 'Staff in ${_selectedComplaint!.departmentName ?? "matching"} department'
+                                    : 'Select a complaint first',
+                                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                              ),
                               const SizedBox(height: 16),
                               Expanded(
-                                child: _availableStaff.isEmpty
+                                child: !hasSelectedComplaint
                                     ? Center(
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      Icon(Icons.people_outline, size: 48, color: Colors.grey[400]),
+                                      Icon(Icons.info_outline, size: 48, color: Colors.grey[400]),
                                       const SizedBox(height: 8),
-                                      Text('No available staff', style: TextStyle(color: Colors.grey[600])),
+                                      Text('Select a complaint first', style: TextStyle(color: Colors.grey[600])),
+                                    ],
+                                  ),
+                                )
+                                    : !hasMatchingStaff
+                                    ? Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.people_outline, size: 48, color: Colors.orange[400]),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'No staff available in ${_selectedComplaint!.departmentName ?? "this"} department',
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(fontSize: 14, color: Colors.orange[700]),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'Please add staff to this department first',
+                                        style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                                      ),
                                     ],
                                   ),
                                 )
                                     : ListView.builder(
-                                  itemCount: _availableStaff.length,
+                                  itemCount: _filteredStaff.length,
                                   itemBuilder: (context, index) {
-                                    return _buildStaffCard(_availableStaff[index]);
+                                    return _buildStaffCard(_filteredStaff[index]);
                                   },
                                 ),
                               ),
@@ -624,19 +716,45 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               const Text('Available Staff', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 8),
+                              Text(
+                                hasSelectedComplaint
+                                    ? 'Staff in ${_selectedComplaint!.departmentName ?? "matching"} department'
+                                    : 'Select a complaint first',
+                                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                              ),
                               const SizedBox(height: 16),
-                              if (_availableStaff.isEmpty)
+                              if (!hasSelectedComplaint)
                                 Center(
                                   child: Column(
                                     children: [
-                                      Icon(Icons.people_outline, size: 48, color: Colors.grey[400]),
+                                      Icon(Icons.info_outline, size: 48, color: Colors.grey[400]),
                                       const SizedBox(height: 8),
-                                      Text('No available staff', style: TextStyle(color: Colors.grey[600])),
+                                      Text('Select a complaint first', style: TextStyle(color: Colors.grey[600])),
+                                    ],
+                                  ),
+                                )
+                              else if (!hasMatchingStaff)
+                                Center(
+                                  child: Column(
+                                    children: [
+                                      Icon(Icons.people_outline, size: 48, color: Colors.orange[400]),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'No staff available in ${_selectedComplaint!.departmentName ?? "this"} department',
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(fontSize: 14, color: Colors.orange[700]),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'Please add staff to this department first',
+                                        style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                                      ),
                                     ],
                                   ),
                                 )
                               else
-                                ..._availableStaff.map((s) => _buildStaffCard(s)),
+                                ..._filteredStaff.map((s) => _buildStaffCard(s)),
                             ],
                           ),
                         ),
@@ -648,7 +766,6 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
             ),
           ),
 
-          // Action Bar
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -717,6 +834,7 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
     final priorityColor = complaint.priority == 'High' ? Colors.red :
     complaint.priority == 'Medium' ? Colors.orange : Colors.green;
     final statusColor = _getStatusColor(complaint.currentStatus);
+    final departmentColor = _getDepartmentColor(complaint.departmentName);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -726,7 +844,7 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
         side: BorderSide(color: isSelected ? Colors.blue : Colors.grey[300]!, width: isSelected ? 2 : 1),
       ),
       child: InkWell(
-        onTap: () => setState(() => _selectedComplaint = complaint),
+        onTap: () => _onComplaintSelected(complaint),
         borderRadius: BorderRadius.circular(8),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -771,6 +889,17 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                 spacing: 8,
                 runSpacing: 4,
                 children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: departmentColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      complaint.departmentName ?? 'No Dept',
+                      style: TextStyle(fontSize: 10, color: departmentColor, fontWeight: FontWeight.w500),
+                    ),
+                  ),
                   Text(
                     _getStatusText(complaint.currentStatus),
                     style: TextStyle(fontSize: 11, color: statusColor, fontWeight: FontWeight.w500),
@@ -847,9 +976,17 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
     );
   }
 
+  // =====================================================
+  // FIXED: Staff card now uses department name comparison
+  // =====================================================
   Widget _buildStaffCard(StaffProfile staff) {
     final isSelected = _selectedStaff?.staffId == staff.staffId;
     final isAvailable = staff.isAvailable;
+
+    // Compare by department NAME instead of ID
+    final complaintDeptName = _selectedComplaint?.departmentName?.toString().toLowerCase().trim() ?? '';
+    final staffDeptName = staff.departmentName?.toString().toLowerCase().trim() ?? '';
+    final isSameDepartment = complaintDeptName == staffDeptName;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -859,10 +996,10 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
         side: BorderSide(color: isSelected ? Colors.blue : Colors.grey[300]!, width: isSelected ? 2 : 1),
       ),
       child: InkWell(
-        onTap: isAvailable ? () => setState(() => _selectedStaff = staff) : null,
+        onTap: isAvailable && isSameDepartment ? () => setState(() => _selectedStaff = staff) : null,
         borderRadius: BorderRadius.circular(8),
         child: Opacity(
-          opacity: isAvailable ? 1.0 : 0.6,
+          opacity: isAvailable && isSameDepartment ? 1.0 : 0.6,
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
@@ -870,8 +1007,15 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                 Container(
                   width: 50,
                   height: 50,
-                  decoration: BoxDecoration(color: Colors.blue[100], shape: BoxShape.circle),
-                  child: const Icon(Icons.person, color: Colors.blue, size: 24),
+                  decoration: BoxDecoration(
+                    color: isSameDepartment ? Colors.blue[100] : Colors.grey[200],
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.person,
+                    color: isSameDepartment ? Colors.blue : Colors.grey,
+                    size: 24,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -880,7 +1024,18 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                     children: [
                       Text(staff.fullName ?? 'Unknown', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                       const SizedBox(height: 4),
-                      Text('${staff.role ?? ''} • ${staff.employeeId ?? ''}', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: _getDepartmentColor(staff.departmentName).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          staff.departmentName ?? 'No Dept',
+                          style: TextStyle(fontSize: 10, color: _getDepartmentColor(staff.departmentName), fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
                       Row(
                         children: [
                           Icon(Icons.assignment, size: 12, color: Colors.grey[500]),
@@ -899,9 +1054,23 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                   children: [
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(color: isAvailable ? Colors.green[50] : Colors.grey[200], borderRadius: BorderRadius.circular(12)),
-                      child: Text(isAvailable ? 'Available' : 'Busy', style: TextStyle(fontSize: 10, color: isAvailable ? Colors.green : Colors.grey, fontWeight: FontWeight.w600)),
+                      decoration: BoxDecoration(
+                        color: isAvailable ? Colors.green[50] : Colors.grey[200],
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        isAvailable ? 'Available' : 'Busy',
+                        style: TextStyle(fontSize: 10, color: isAvailable ? Colors.green : Colors.grey, fontWeight: FontWeight.w600),
+                      ),
                     ),
+                    if (!isSameDepartment && _selectedComplaint != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'Wrong dept',
+                          style: TextStyle(fontSize: 8, color: Colors.red[400]),
+                        ),
+                      ),
                   ],
                 ),
               ],
