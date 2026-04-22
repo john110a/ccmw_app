@@ -313,6 +313,12 @@ class AssignmentService {
         }
 
         print('📊 Total complaints found: ${complaintsList.length}');
+
+        // Debug: Print first complaint to verify structure
+        if (complaintsList.isNotEmpty) {
+          print('🔍 First complaint keys: ${complaintsList.first.keys}');
+        }
+
         return complaintsList.map((json) => Complaint.fromJson(json)).toList();
       } else {
         print('❌ Error: ${response.statusCode} - ${response.body}');
@@ -355,14 +361,15 @@ class AssignmentService {
   }
 
   // =====================================================
-  // 4. STAFF MANAGEMENT
+  // 4. STAFF MANAGEMENT - FIXED VERSION
   // =====================================================
 
   /// Get available staff for assignment (optionally filtered by department)
   Future<List<StaffProfile>> getAvailableStaff([String? departmentId]) async {
     try {
-      String url = '${ApiConfig.baseUrl}/staff/available';
-      if (departmentId != null) {
+      // FIXED: Use the correct endpoint that actually returns staff data
+      String url = '${ApiConfig.baseUrl}/staff';
+      if (departmentId != null && departmentId.isNotEmpty) {
         url += '?departmentId=$departmentId';
       }
 
@@ -373,23 +380,38 @@ class AssignmentService {
         headers: ApiConfig.getHeaders(),
       ).timeout(const Duration(seconds: 10));
 
+      print('📡 Response status: ${response.statusCode}');
+
       if (response.statusCode == 200) {
         final dynamic data = json.decode(response.body);
         List<dynamic> staffList = [];
 
+        // Handle different response formats
         if (data is Map) {
+          // Your API returns: { "TotalStaff": 19, "Staff": [...] }
           if (data.containsKey('Staff') && data['Staff'] is List) {
             staffList = data['Staff'];
+            print('✅ Found ${staffList.length} staff in "Staff" array');
           } else if (data.containsKey('data') && data['data'] is List) {
             staffList = data['data'];
+            print('✅ Found ${staffList.length} staff in "data" array');
           }
         } else if (data is List) {
           staffList = data;
+          print('✅ Found ${staffList.length} staff (direct list)');
         }
 
-        print('📊 Found ${staffList.length} available staff members');
+        // Filter by department if needed
+        if (departmentId != null && departmentId.isNotEmpty) {
+          staffList = staffList.where((staff) {
+            return staff['DepartmentId']?.toString() == departmentId;
+          }).toList();
+          print('📊 Filtered to ${staffList.length} staff in department $departmentId');
+        }
+
         return staffList.map((json) => StaffProfile.fromJson(json)).toList();
       } else {
+        print('❌ Failed to load staff: ${response.statusCode}');
         return [];
       }
     } catch (e) {
