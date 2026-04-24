@@ -314,7 +314,6 @@ class AssignmentService {
 
         print('📊 Total complaints found: ${complaintsList.length}');
 
-        // Debug: Print first complaint to verify structure
         if (complaintsList.isNotEmpty) {
           print('🔍 First complaint keys: ${complaintsList.first.keys}');
         }
@@ -361,14 +360,15 @@ class AssignmentService {
   }
 
   // =====================================================
-  // 4. STAFF MANAGEMENT - FIXED VERSION
+  // 4. STAFF MANAGEMENT - UPDATED TO MATCH BACKEND ROUTES
   // =====================================================
 
   /// Get available staff for assignment (optionally filtered by department)
+  /// This calls the AssignmentController's staff/available endpoint
   Future<List<StaffProfile>> getAvailableStaff([String? departmentId]) async {
     try {
-      // FIXED: Use the correct endpoint that actually returns staff data
-      String url = '${ApiConfig.baseUrl}/staff';
+      // FIXED: Use the correct endpoint from AssignmentController
+      String url = '${ApiConfig.baseUrl}/assignments/staff/available';
       if (departmentId != null && departmentId.isNotEmpty) {
         url += '?departmentId=$departmentId';
       }
@@ -386,9 +386,9 @@ class AssignmentService {
         final dynamic data = json.decode(response.body);
         List<dynamic> staffList = [];
 
-        // Handle different response formats
+        // Handle response format from AssignmentController
         if (data is Map) {
-          // Your API returns: { "TotalStaff": 19, "Staff": [...] }
+          // AssignmentController returns: { "TotalAvailable": 16, "Staff": [...] }
           if (data.containsKey('Staff') && data['Staff'] is List) {
             staffList = data['Staff'];
             print('✅ Found ${staffList.length} staff in "Staff" array');
@@ -401,7 +401,7 @@ class AssignmentService {
           print('✅ Found ${staffList.length} staff (direct list)');
         }
 
-        // Filter by department if needed
+        // Filter by department if needed (backend already filters, but double-check)
         if (departmentId != null && departmentId.isNotEmpty) {
           staffList = staffList.where((staff) {
             return staff['DepartmentId']?.toString() == departmentId;

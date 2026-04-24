@@ -1,10 +1,11 @@
+// lib/screens/staff/staff_dashboard_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'staff_drawer.dart';
 import '../../services/AuthService.dart';
 import '../../services/staff_action_service.dart';
 import '../../services/locationservice.dart';
-import '../../models/staff_profile_model.dart';
 import '../../config/routes.dart';
 
 class StaffDashboardScreen extends StatefulWidget {
@@ -20,8 +21,8 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   final LocationService _locationService = LocationService();
 
   // Data variables
-  List<dynamic> _assignments = [];
-  List<dynamic> _nearbyComplaints = [];
+  List<Map<String, dynamic>> _activeTasks = [];
+  List<Map<String, dynamic>> _nearbyComplaints = [];
   bool _isLoading = true;
   bool _isUpdatingLocation = false;
   String? _errorMessage;
@@ -43,6 +44,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   int _acceptedAssignments = 0;
   int _inProgressAssignments = 0;
   double _avgResolutionTime = 0.0;
+  double _completionRate = 0.0;
 
   @override
   void initState() {
@@ -75,17 +77,17 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   }
 
   Future<void> _loadNearbyComplaints() async {
-    if (_staffId == null) return;
+    if (_staffId == null || _currentPosition == null) return;
     try {
       final response = await _staffActionService.getNearbyComplaints(
-        _staffId!,                          // 1st: staffId
-        _currentPosition!.latitude,         // 2nd: latitude
-        _currentPosition!.longitude,        // 3rd: longitude
-        2.0,                                // 4th: radius in km
+        _staffId!,
+        _currentPosition!.latitude,
+        _currentPosition!.longitude,
+        2.0,
       );
       if (mounted) {
         setState(() {
-          _nearbyComplaints = response['Complaints'] ?? [];
+          _nearbyComplaints = List<Map<String, dynamic>>.from(response['Complaints'] ?? []);
         });
       }
     } catch (e) {
@@ -97,63 +99,61 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Get staff ID from AuthService
       _staffId = await _authService.getStaffId();
       if (_staffId == null) {
-        // Try to get from user ID if staff ID not found
-        final userId = await _authService.getUserId();
-        if (userId != null) {
-          // You might need to fetch staff profile by user ID
-          print('Staff ID not found, User ID: $userId');
-        }
         throw Exception('Staff ID not found. Please contact administrator.');
       }
 
       print('📡 Loading dashboard for Staff ID: $_staffId');
 
-      // Get staff dashboard data
       final data = await _staffActionService.getMyAssignments(_staffId!);
-      print('📦 Dashboard data: $data');
+      print('📦 Dashboard data received');
 
-      // Extract staff info from response
-      // Your backend returns staff info in the response
-      _staffName = data['StaffName'] ??
-          data['fullName'] ??
-          data['FullName'] ??
-          await _authService.getUserName() ??
-          'Staff Member';
+      // Extract staff info
+      _staffName = data['StaffName'] ?? await _authService.getUserName() ?? 'Staff Member';
+      _departmentName = data['DepartmentName'] ?? await _authService.getDepartmentName() ?? 'Not Assigned';
+      _role = data['Role'] ?? 'Field Staff';
+      _employeeId = data['EmployeeId'];
+      _performanceScore = (data['PerformanceScore'] ?? 0.0).toDouble();
 
-      _departmentName = data['DepartmentName'] ??
-          data['departmentName'] ??
-          await _authService.getDepartmentName() ??
-          'Not Assigned';
-
-      _role = data['Role'] ?? data['role'] ?? 'Field Staff';
-      _employeeId = data['EmployeeId'] ?? data['employeeId'];
-      _performanceScore = (data['PerformanceScore'] ?? data['performanceScore'] ?? 0.0).toDouble();
-
-      // Extract statistics from the response
+      // Extract statistics
       final stats = data['Statistics'] ?? {};
-      _totalAssignments = stats['Total'] ?? stats['totalAssignments'] ?? 0;
-      _completedAssignments = stats['Completed'] ?? stats['completedAssignments'] ?? 0;
-      _pendingAssignments = stats['Pending'] ?? stats['pendingAssignments'] ?? 0;
+      _totalAssignments = stats['Total'] ?? 0;
+      _completedAssignments = stats['Completed'] ?? 0;
+      _pendingAssignments = stats['Pending'] ?? 0;
       _acceptedAssignments = stats['Accepted'] ?? 0;
       _inProgressAssignments = stats['InProgress'] ?? 0;
-      _avgResolutionTime = (stats['AverageResolutionTime'] ?? stats['averageResolutionTime'] ?? 0.0).toDouble();
+      _avgResolutionTime = (stats['AverageResolutionTime'] ?? 0.0).toDouble();
+      _completionRate = stats['CompletionRate'] ?? (_totalAssignments > 0 ? (_completedAssignments * 100 / _totalAssignments) : 0);
 
-      // Extract assignments from the response
-      _assignments = data['Assignments'] ?? [];
-
-      // Calculate zone name from first assignment or use default
-      if (_assignments.isNotEmpty && _zoneName == null) {
-        final firstAssignment = _assignments.first;
-        _zoneName = firstAssignment['Zone']?['ZoneName'] ??
-            firstAssignment['zoneName'] ??
-            'Unknown Zone';
-      }
+      // Extract active tasks with proper key mapping
+      final assignments = data['Assignments'] ?? [];
+      _activeTasks = assignments.map<Map<String, dynamic>>((task) {
+        return {
+          'assignmentId': task['AssignmentId'],
+          'complaintId': task['ComplaintId'],
+          'complaintNumber': task['ComplaintNumber'],
+          'title': task['Title'],
+          'description': task['Description'],
+          'priority': task['Priority'],
+          'locationAddress': task['LocationAddress'],
+          'locationLatitude': task['LocationLatitude'],
+          'locationLongitude': task['LocationLongitude'],
+          'categoryName': task['CategoryName'],
+          'zoneName': task['ZoneName'],
+          'assignedAt': task['AssignedAt'],
+          'expectedCompletionDate': task['ExpectedCompletionDate'],
+          'acceptedAt': task['AcceptedAt'],
+          'startedAt': task['StartedAt'],
+          'completedAt': task['CompletedAt'],
+          'status': task['Status'],
+          'isOverdue': task['IsOverdue'],
+        };
+      }).toList();
 
       print('✅ Dashboard loaded: $_staffName, Dept: $_departmentName');
       print('📊 Stats - Total: $_totalAssignments, Completed: $_completedAssignments, Pending: $_pendingAssignments');
+      print('📋 Active tasks: ${_activeTasks.length}');
 
       setState(() {
         _isLoading = false;
@@ -168,23 +168,32 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   }
 
   Future<void> _updateLocationManually() async {
-    final position = await _locationService.getCurrentLocation();
-    if (position != null && mounted) {
-      await _updateLocation(position.latitude, position.longitude, position.accuracy);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Location updated: ${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}'),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not get location. Please enable GPS.'),
-          backgroundColor: Colors.red,
-        ),
-      );
+    setState(() => _isUpdatingLocation = true);
+    try {
+      final position = await _locationService.getCurrentLocation();
+      if (position != null && mounted) {
+        await _updateLocation(position.latitude, position.longitude, position.accuracy);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Location updated: ${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not get location. Please enable GPS.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _isUpdatingLocation = false);
     }
   }
 
@@ -218,8 +227,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-
     if (_isLoading) {
       return Scaffold(
         body: Center(
@@ -256,7 +263,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     }
 
     return Scaffold(
-      key: _scaffoldKey,
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
         backgroundColor: Colors.white,
@@ -298,7 +304,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           physics: const AlwaysScrollableScrollPhysics(),
           child: Column(
             children: [
-              // ========== PROFILE HEADER ==========
+              // Profile Header
               Container(
                 padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
@@ -354,11 +360,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                               style: TextStyle(fontSize: 12, color: Colors.blue[700], fontWeight: FontWeight.w500),
                             ),
                           ),
-                          if (_zoneName != null)
-                            Text(
-                              '📍 $_zoneName',
-                              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                            ),
                         ],
                       ),
                     ),
@@ -366,7 +367,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                 ),
               ),
 
-              // ========== STATS CARDS ==========
+              // Stats Cards
               Container(
                 padding: const EdgeInsets.all(16),
                 child: Row(
@@ -380,7 +381,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                 ),
               ),
 
-              // ========== NEARBY COMPLAINTS ==========
+              // Nearby Complaints
               if (_nearbyComplaints.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.all(16),
@@ -413,7 +414,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                   ),
                 ),
 
-              // ========== MY TASKS ==========
+              // My Tasks
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -438,11 +439,11 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    if (_assignments.isEmpty)
+                    if (_activeTasks.isEmpty)
                       Container(
                         padding: const EdgeInsets.all(32),
                         decoration: BoxDecoration(
-                          color: Colors.grey[50],
+                          color: Colors.white,
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Column(
@@ -462,7 +463,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                         ),
                       )
                     else
-                      ..._assignments.map((assignment) => Padding(
+                      ..._activeTasks.map((assignment) => Padding(
                         padding: const EdgeInsets.only(bottom: 12),
                         child: _buildTaskCard(assignment),
                       )),
@@ -470,7 +471,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                 ),
               ),
 
-              // ========== QUICK ACTIONS ==========
+              // Quick Actions
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -491,7 +492,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                 ),
               ),
 
-              // ========== PERFORMANCE METRICS ==========
+              // Performance Metrics
               Container(
                 margin: const EdgeInsets.all(16),
                 padding: const EdgeInsets.all(16),
@@ -511,7 +512,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                       children: [
                         Expanded(
                           child: _buildMetricCircle(
-                            '${_totalAssignments > 0 ? (_completedAssignments * 100 ~/ _totalAssignments) : 0}%',
+                            '${_completionRate.toStringAsFixed(0)}%',
                             'Completion Rate',
                             Colors.green,
                           ),
@@ -638,17 +639,22 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     );
   }
 
-  Widget _buildTaskCard(Map<String, dynamic> assignment) {
-    final complaint = assignment['Complaint'] ?? assignment;
-    final priority = complaint['Priority'] ?? assignment['priority'] ?? 'Medium';
+  Widget _buildTaskCard(Map<String, dynamic> task) {
+    final title = task['title'] ?? 'No Title';
+    final priority = task['priority'] ?? 'Medium';
     final priorityColor = priority == 'High' ? Colors.red : (priority == 'Medium' ? Colors.orange : Colors.green);
-    final status = assignment['Status'] ?? assignment['status'] ?? 'Assigned';
+    final status = task['status'] ?? 'Assigned';
+    final statusColor = status == 'Completed' ? Colors.green : (status == 'InProgress' ? Colors.blue : (status == 'Accepted' ? Colors.orange : Colors.grey));
+    final complaintNumber = task['complaintNumber'] ?? 'N/A';
+    final locationAddress = task['locationAddress'] ?? 'No address';
+    final categoryName = task['categoryName'] ?? 'General';
+    final zoneName = task['zoneName'] ?? 'Unknown';
 
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
-        onTap: () => _navigateToTask(assignment),
+        onTap: () => _navigateToTask(task),
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -669,17 +675,19 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: status == 'Completed' ? Colors.green.withOpacity(0.1) : Colors.blue.withOpacity(0.1),
+                      color: statusColor.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(4),
                     ),
-                    child: Text(status, style: TextStyle(fontSize: 11, color: status == 'Completed' ? Colors.green : Colors.blue)),
+                    child: Text(status, style: TextStyle(fontSize: 11, color: statusColor, fontWeight: FontWeight.w500)),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
               Text(
-                complaint['Title'] ?? assignment['title'] ?? 'No Title',
+                title,
                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 8),
               Row(
@@ -688,8 +696,10 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      complaint['LocationAddress'] ?? assignment['locationAddress'] ?? 'No address',
+                      locationAddress,
                       style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
@@ -700,15 +710,20 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                   Icon(Icons.category, size: 12, color: Colors.grey[400]),
                   const SizedBox(width: 4),
                   Text(
-                    complaint['Category']?['CategoryName'] ?? assignment['categoryName'] ?? 'General',
+                    categoryName,
                     style: const TextStyle(fontSize: 11, color: Colors.grey),
                   ),
                   const SizedBox(width: 12),
                   Icon(Icons.location_city, size: 12, color: Colors.grey[400]),
                   const SizedBox(width: 4),
                   Text(
-                    complaint['Zone']?['ZoneName'] ?? assignment['zoneName'] ?? 'Unknown',
+                    zoneName,
                     style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    complaintNumber,
+                    style: TextStyle(fontSize: 11, color: Colors.grey[500]),
                   ),
                 ],
               ),
@@ -762,14 +777,5 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
         Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[600]), textAlign: TextAlign.center),
       ],
     );
-  }
-
-  Color _getPriorityColor(String? priority) {
-    switch (priority?.toLowerCase()) {
-      case 'high': return Colors.red;
-      case 'medium': return Colors.orange;
-      case 'low': return Colors.green;
-      default: return Colors.grey;
-    }
   }
 }

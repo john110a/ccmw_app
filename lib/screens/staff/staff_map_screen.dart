@@ -1,10 +1,12 @@
-import 'dart:math' as math;
+// lib/screens/staff/staff_map_screen.dart
 
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../services/staff_action_service.dart';
 import '../../services/authservice.dart';
+import '../../config/routes.dart';
 
 class StaffMapScreen extends StatefulWidget {
   const StaffMapScreen({super.key});
@@ -79,49 +81,40 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
     if (_staffId == null || _currentLocation == null) return;
 
     try {
-      final response = await _staffActionService.getNearbyComplaints(
-        _staffId!,                    // 1st: staffId
-        _currentLocation!.latitude,   // 2nd: latitude
-        _currentLocation!.longitude,  // 3rd: longitude
-        3.0,                          // 4th: radius in km
+      // getNearbyComplaints returns a Map<String, dynamic>
+      final Map<String, dynamic> response = await _staffActionService.getNearbyComplaints(
+        _staffId!,
+        _currentLocation!.latitude,
+        _currentLocation!.longitude,
+        3.0,
       );
 
-      // Clear existing markers
       Set<Marker> newMarkers = {};
 
-      // Handle different response formats
+      // Extract complaints from response Map
       List<dynamic> complaintsList = [];
 
-      // Check the type of response
-      if (response is List) {
-        // Response is already a list
-        complaintsList = response as List;
-      } else if (response is Map<String, dynamic>) {
-        // Response is a map - extract the complaints array
-        if (response.containsKey('complaints')) {
-          complaintsList = response['complaints'] as List<dynamic>;
-        } else if (response.containsKey('data')) {
-          complaintsList = response['data'] as List<dynamic>;
-        } else if (response.containsKey('Complaints')) {
-          complaintsList = response['Complaints'] as List<dynamic>;
-        } else if (response.containsKey('Data')) {
-          complaintsList = response['Data'] as List<dynamic>;
-        } else if (response.containsKey('results')) {
-          complaintsList = response['results'] as List<dynamic>;
-        } else if (response.containsKey('items')) {
-          complaintsList = response['items'] as List<dynamic>;
-        } else {
-          // If no array found, check if the map itself contains complaint data
-          if (response.containsKey('complaintId') || response.containsKey('ComplaintId')) {
-            complaintsList = [response];
-          }
-        }
+      // Try different possible keys where complaints might be stored
+      if (response.containsKey('Complaints')) {
+        complaintsList = response['Complaints'] as List<dynamic>;
+      } else if (response.containsKey('complaints')) {
+        complaintsList = response['complaints'] as List<dynamic>;
+      } else if (response.containsKey('data')) {
+        complaintsList = response['data'] as List<dynamic>;
+      } else if (response.containsKey('Data')) {
+        complaintsList = response['Data'] as List<dynamic>;
+      } else if (response.containsKey('results')) {
+        complaintsList = response['results'] as List<dynamic>;
+      } else if (response.containsKey('items')) {
+        complaintsList = response['items'] as List<dynamic>;
       }
+
+      print('📍 Found ${complaintsList.length} nearby complaints');
 
       // Process each complaint
       for (var complaint in complaintsList) {
         if (complaint is Map<String, dynamic>) {
-          // Extract complaint ID with fallbacks
+          // Extract complaint ID
           String complaintId = complaint['complaintId']?.toString() ??
               complaint['ComplaintId']?.toString() ??
               complaint['id']?.toString() ??
@@ -151,11 +144,13 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
             lng = (complaint['Longitude'] as num).toDouble();
           }
 
+          // Skip if no valid coordinates
+          if (lat == 0.0 && lng == 0.0) continue;
+
           // Extract title
           String title = complaint['title']?.toString() ??
               complaint['Title']?.toString() ??
-              complaint['name']?.toString() ??
-              'Unknown';
+              'Unknown Complaint';
 
           // Extract priority
           String priority = complaint['priority']?.toString() ??
@@ -163,9 +158,12 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
               'Medium';
 
           // Extract distance
-          String distance = complaint['distanceKm']?.toString() ??
-              complaint['distance']?.toString() ??
-              '?';
+          double distance = 0.0;
+          if (complaint.containsKey('distanceKm')) {
+            distance = (complaint['distanceKm'] as num).toDouble();
+          } else if (complaint.containsKey('distance')) {
+            distance = (complaint['distance'] as num).toDouble();
+          }
 
           newMarkers.add(
             Marker(
@@ -173,7 +171,7 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
               position: LatLng(lat, lng),
               infoWindow: InfoWindow(
                 title: title,
-                snippet: 'Priority: $priority • ${distance}km away',
+                snippet: 'Priority: $priority • ${distance.toStringAsFixed(1)}km away',
               ),
               icon: _getMarkerIcon(priority),
               onTap: () {
@@ -205,12 +203,19 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
       if (complaintsList.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('No nearby complaints found'),
+            content: Text('No nearby complaints found in your area'),
             duration: Duration(seconds: 2),
           ),
         );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Found ${complaintsList.length} nearby complaints'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
       }
-
     } catch (e) {
       print('Error loading nearby complaints: $e');
       setState(() {
@@ -285,15 +290,10 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
 
   void _openMapsNavigation() {
     if (_currentLocation == null || _selectedLocation == null) return;
-    // Open Google Maps for navigation
     final url = 'https://www.google.com/maps/dir/${_currentLocation!.latitude},${_currentLocation!.longitude}/${_selectedLocation!.latitude},${_selectedLocation!.longitude}';
-    // Use url_launcher to open - add url_launcher package
-    // launchUrl(Uri.parse(url));
-
-    // For now, just show a message
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Navigation feature coming soon. Add url_launcher package.'),
+        content: Text('Navigation: Open Google Maps (requires url_launcher package)'),
         duration: Duration(seconds: 2),
       ),
     );
@@ -320,6 +320,43 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
     await _loadNearbyComplaints();
     await _updateStaffLocation();
     setState(() => _isLoading = false);
+  }
+
+  void _viewTaskDetails() {
+    if (_selectedComplaint != null) {
+      Navigator.pushNamed(
+        context,
+        Routes.taskDetail,
+        arguments: {
+          'assignmentId': _selectedComplaint!['assignmentId'] ??
+              _selectedComplaint!['AssignmentId'],
+          'staffId': _staffId,
+          'title': _selectedComplaint!['title'] ??
+              _selectedComplaint!['Title'],
+          'complaintNumber': _selectedComplaint!['complaintNumber'] ??
+              _selectedComplaint!['ComplaintNumber'],
+          'description': _selectedComplaint!['description'] ??
+              _selectedComplaint!['Description'],
+          'priority': _selectedComplaint!['priority'] ??
+              _selectedComplaint!['Priority'],
+          'categoryName': _selectedComplaint!['categoryName'] ??
+              _selectedComplaint!['CategoryName'],
+          'zoneName': _selectedComplaint!['zoneName'] ??
+              _selectedComplaint!['ZoneName'],
+          'locationAddress': _selectedComplaint!['locationAddress'] ??
+              _selectedComplaint!['LocationAddress'],
+          'locationLatitude': _selectedComplaint!['locationLatitude'] ??
+              _selectedComplaint!['LocationLatitude'],
+          'locationLongitude': _selectedComplaint!['locationLongitude'] ??
+              _selectedComplaint!['LocationLongitude'],
+          'status': 'Assigned',
+        },
+      ).then((result) {
+        if (result == true) {
+          _refreshData();
+        }
+      });
+    }
   }
 
   @override
@@ -400,24 +437,13 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
             icon: const Icon(Icons.refresh, color: Colors.grey),
             onPressed: _refreshData,
           ),
-          if (_selectedComplaint != null)
-            TextButton(
-              onPressed: () {
-                Navigator.pushNamed(
-                  context,
-                  '/staff-complaint-view',
-                  arguments: _selectedComplaint,
-                );
-              },
-              child: const Text('View Details'),
-            ),
         ],
       ),
       body: Stack(
         children: [
           GoogleMap(
             initialCameraPosition: CameraPosition(
-              target: _currentLocation ?? const LatLng(24.8607, 67.0011),
+              target: _currentLocation ?? const LatLng(33.6844, 73.0479),
               zoom: 14,
             ),
             onMapCreated: (controller) => _mapController = controller,
@@ -439,10 +465,13 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
           // Bottom sheet for selected complaint
           if (_selectedComplaint != null)
             DraggableScrollableSheet(
-              initialChildSize: 0.25,
+              initialChildSize: 0.28,
               minChildSize: 0.15,
               maxChildSize: 0.5,
               builder: (context, scrollController) {
+                final priority = _selectedComplaint!['priority']?.toString() ??
+                    _selectedComplaint!['Priority']?.toString() ?? 'Medium';
+
                 return Container(
                   decoration: BoxDecoration(
                     color: Colors.white,
@@ -475,14 +504,14 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                   decoration: BoxDecoration(
-                                    color: _getPriorityColor(_selectedComplaint!['priority']?.toString() ?? 'medium').withOpacity(0.1),
+                                    color: _getPriorityColor(priority).withOpacity(0.1),
                                     borderRadius: BorderRadius.circular(4),
                                   ),
                                   child: Text(
-                                    _selectedComplaint!['priority']?.toString() ?? 'Medium',
+                                    priority,
                                     style: TextStyle(
                                       fontSize: 12,
-                                      color: _getPriorityColor(_selectedComplaint!['priority']?.toString() ?? 'medium'),
+                                      color: _getPriorityColor(priority),
                                       fontWeight: FontWeight.w500,
                                     ),
                                   ),
@@ -500,7 +529,7 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
                             Text(
                               _selectedComplaint!['title']?.toString() ??
                                   _selectedComplaint!['Title']?.toString() ??
-                                  'Unknown',
+                                  'Unknown Complaint',
                               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                             ),
                             const SizedBox(height: 8),
@@ -512,13 +541,13 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
                                   child: Text(
                                     _selectedComplaint!['locationAddress']?.toString() ??
                                         _selectedComplaint!['LocationAddress']?.toString() ??
-                                        'No address',
+                                        'No address provided',
                                     style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                                   ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 16),
                             Row(
                               children: [
                                 Expanded(
@@ -535,13 +564,7 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: ElevatedButton.icon(
-                                    onPressed: () {
-                                      Navigator.pushNamed(
-                                        context,
-                                        '/staff-complaint-view',
-                                        arguments: _selectedComplaint,
-                                      );
-                                    },
+                                    onPressed: _viewTaskDetails,
                                     icon: const Icon(Icons.assignment),
                                     label: const Text('View Task'),
                                     style: ElevatedButton.styleFrom(
@@ -563,7 +586,12 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _refreshData,
+        onPressed: () async {
+          await _getCurrentLocation();
+          _mapController?.animateCamera(
+            CameraUpdate.newLatLngZoom(_currentLocation!, 14),
+          );
+        },
         child: const Icon(Icons.my_location),
         tooltip: 'Center on my location',
       ),
@@ -572,11 +600,16 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
 
   Color _getPriorityColor(String priority) {
     switch (priority.toLowerCase()) {
-      case 'high': return Colors.red;
-      case 'critical': return Colors.red;
-      case 'medium': return Colors.orange;
-      case 'low': return Colors.green;
-      default: return Colors.grey;
+      case 'high':
+        return Colors.red;
+      case 'critical':
+        return Colors.red;
+      case 'medium':
+        return Colors.orange;
+      case 'low':
+        return Colors.green;
+      default:
+        return Colors.grey;
     }
   }
 }

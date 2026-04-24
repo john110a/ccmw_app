@@ -37,6 +37,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   bool _isAccepted = false;
   bool _isStarted = false;
   bool _isCompleted = false;
+  String? _currentStatus;
 
   @override
   void didChangeDependencies() {
@@ -55,30 +56,32 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         _locationAddress = args['locationAddress']?.toString();
         _locationLatitude = args['locationLatitude']?.toDouble();
         _locationLongitude = args['locationLongitude']?.toDouble();
-        _isAccepted = args['acceptedAt'] != null;
-        _isStarted = args['startedAt'] != null;
-        _isCompleted = args['completedAt'] != null;
+        _currentStatus = args['status']?.toString();
+
+        // Set workflow state based on status
+        _isCompleted = _currentStatus == 'Completed';
+        _isStarted = _currentStatus == 'InProgress' || _currentStatus == 'Started';
+        _isAccepted = _currentStatus == 'Accepted';
       });
     }
   }
 
   Future<void> _acceptTask() async {
     if (_assignmentId == null || _staffId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Missing task information'), backgroundColor: Colors.red),
-      );
+      _showError('Missing task information');
       return;
     }
 
     setState(() => _isLoading = true);
 
     try {
+      // Get current location for GPS verification
       final position = await _locationService.getCurrentLocation();
       if (position == null) {
         throw Exception('Unable to get your location. Please enable GPS.');
       }
 
-      await _staffActionService.acceptAssignmentWithLocation(
+      final result = await _staffActionService.acceptAssignmentWithLocation(
         _assignmentId!,
         _staffId!,
         position.latitude,
@@ -88,54 +91,44 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
       setState(() {
         _isAccepted = true;
+        _currentStatus = 'Accepted';
         _isLoading = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Task accepted successfully'), backgroundColor: Colors.green),
-      );
+      _showSuccess('Task accepted successfully');
     } catch (e) {
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-      );
+      _showError(e.toString());
     }
   }
 
   Future<void> _startWork() async {
     if (_assignmentId == null || _staffId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Missing task information'), backgroundColor: Colors.red),
-      );
+      _showError('Missing task information');
       return;
     }
 
     setState(() => _isLoading = true);
 
     try {
-      await _staffActionService.startWork(_assignmentId!, _staffId!);
+      final result = await _staffActionService.startWork(_assignmentId!, _staffId!);
 
       setState(() {
         _isStarted = true;
+        _currentStatus = 'InProgress';
         _isLoading = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Work started'), backgroundColor: Colors.green),
-      );
+      _showSuccess('Work started successfully');
     } catch (e) {
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-      );
+      _showError(e.toString());
     }
   }
 
   Future<void> _goToResolutionUpload() async {
     if (_assignmentId == null || _staffId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Missing task information'), backgroundColor: Colors.red),
-      );
+      _showError('Missing task information');
       return;
     }
 
@@ -146,22 +139,37 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         'assignmentId': _assignmentId,
         'staffId': _staffId,
         'complaintTitle': _title ?? 'Complaint',
+        'complaintNumber': _complaintNumber,
       },
     );
 
     if (result == true) {
       setState(() {
         _isCompleted = true;
+        _currentStatus = 'Completed';
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Resolution submitted successfully!'), backgroundColor: Colors.green),
-      );
+      _showSuccess('Resolution submitted successfully!');
 
+      // Return to previous screen after delay
       Future.delayed(const Duration(seconds: 1), () {
-        Navigator.pop(context, true);
+        if (mounted) {
+          Navigator.pop(context, true);
+        }
       });
     }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
+  }
+
+  void _showSuccess(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.green),
+    );
   }
 
   @override
@@ -353,7 +361,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                       Marker(
                         markerId: const MarkerId('complaint'),
                         position: LatLng(_locationLatitude!, _locationLongitude!),
-                        infoWindow: const InfoWindow(title: 'Complaint Location'),
+                        infoWindow: InfoWindow(title: _title ?? 'Complaint Location'),
                       ),
                     },
                     myLocationEnabled: true,
@@ -363,7 +371,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               ),
 
             // Location Address
-            if (_locationAddress != null)
+            if (_locationAddress != null && _locationAddress!.isNotEmpty)
               Container(
                 margin: const EdgeInsets.symmetric(horizontal: 16),
                 padding: const EdgeInsets.all(12),
@@ -425,7 +433,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 margin: const EdgeInsets.all(16),
                 child: Column(
                   children: [
-                    if (!_isAccepted)
+                    if (!_isAccepted && !_isStarted)
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
@@ -448,7 +456,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                         ),
                       ),
 
-                    if (_isAccepted && !_isStarted)
+                    if (_isAccepted && !_isStarted && !_isCompleted)
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
@@ -479,7 +487,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                           icon: const Icon(Icons.photo_camera),
                           label: const Text('Submit Resolution'),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
+                            backgroundColor: Colors.orange,
                             padding: const EdgeInsets.symmetric(vertical: 14),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),

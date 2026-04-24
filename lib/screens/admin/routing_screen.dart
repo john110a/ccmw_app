@@ -29,9 +29,9 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
   StaffProfile? _selectedStaff;
   Complaint? _selectedComplaint;
 
-  // Filter options
-  String _selectedFilter = 'All';
-  final List<String> _filterOptions = ['All', 'Unassigned', 'Assigned', 'Approved'];
+  // Changed default to 'Unassigned'
+  String _selectedFilter = 'Unassigned';
+  final List<String> _filterOptions = ['Unassigned', 'Approved', 'All', 'Assigned'];
 
   @override
   void initState() {
@@ -59,7 +59,10 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
 
   Future<void> _loadData() async {
     if (!mounted) return;
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
     try {
       List<Complaint> complaints = [];
@@ -73,32 +76,34 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
         ]);
         complaints = results[0] as List<Complaint>;
         staff = results[1] as List<StaffProfile>;
-      }
-      else if (_userRole == 'Department_Admin') {
+      } else if (_userRole == 'Department_Admin') {
         if (_userDepartmentId == null) {
           throw Exception('Department Admin has no department assigned');
         }
-        print('📡 Department Admin - Loading complaints and staff for department: $_userDepartmentName');
-
+        print('📡 Department Admin - Loading complaints and staff for: $_userDepartmentName');
         final results = await Future.wait([
           _assignmentService.getComplaints(departmentId: _userDepartmentId),
           _staffService.getAvailableStaff(_userDepartmentId),
         ]);
         complaints = results[0] as List<Complaint>;
         staff = results[1] as List<StaffProfile>;
-      }
-      else {
+      } else {
         throw Exception('Unauthorized to access complaint routing');
       }
 
+      // Filter: only show Field_Staff in the staff list
+      final fieldStaffOnly = staff.where((s) => s.role == 'Field_Staff').toList();
+
       print('✅ Loaded ${complaints.length} complaints');
-      print('✅ Loaded ${staff.length} available staff');
+      print('✅ Loaded ${fieldStaffOnly.length} field staff (filtered from ${staff.length} total)');
 
       if (mounted) {
         setState(() {
           _allComplaints = complaints;
-          _allStaff = staff;
+          _allStaff = fieldStaffOnly;
           _filteredStaff = [];
+          _selectedComplaint = null;
+          _selectedStaff = null;
           _isLoading = false;
         });
       }
@@ -113,28 +118,27 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
     }
   }
 
+  // Updated: Only show unassigned complaints for relevant filters
   List<Complaint> get _filteredComplaints {
-    if (_selectedFilter == 'All') {
-      return _allComplaints;
-    } else if (_selectedFilter == 'Unassigned') {
-      return _allComplaints.where((c) => c.assignedToId == null).toList();
-    } else if (_selectedFilter == 'Assigned') {
-      return _allComplaints.where((c) => c.assignedToId != null).toList();
-    } else if (_selectedFilter == 'Approved') {
-      return _allComplaints.where((c) => c.currentStatus == 2).toList();
+    switch (_selectedFilter) {
+      case 'Unassigned':
+        return _allComplaints.where((c) => c.assignedToId == null).toList();
+      case 'Assigned':
+        return _allComplaints.where((c) => c.assignedToId != null).toList();
+      case 'Approved':
+        return _allComplaints
+            .where((c) => c.currentStatus == 2 && c.assignedToId == null)
+            .toList();
+      default: // 'All'
+        return _allComplaints.where((c) => c.assignedToId == null).toList();
     }
-    return _allComplaints;
   }
 
-  // =====================================================
-  // FIXED: Filter staff by DEPARTMENT NAME instead of ID
-  // =====================================================
   void _onComplaintSelected(Complaint complaint) {
     setState(() {
       _selectedComplaint = complaint;
       _selectedStaff = null;
 
-      // Filter staff by department NAME (case-insensitive and trimmed)
       _filteredStaff = _allStaff.where((staff) {
         final complaintDeptName = complaint.departmentName?.toString().toLowerCase().trim() ?? '';
         final staffDeptName = staff.departmentName?.toString().toLowerCase().trim() ?? '';
@@ -148,9 +152,7 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
     if (_filteredStaff.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            'No staff available in ${complaint.departmentName ?? "this"} department',
-          ),
+          content: Text('No Field Staff available in ${complaint.departmentName ?? "this"} department'),
           backgroundColor: Colors.orange,
           duration: const Duration(seconds: 3),
         ),
@@ -161,34 +163,25 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
   Future<void> _assignComplaint() async {
     if (_selectedComplaint == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select a complaint first'),
-          backgroundColor: Colors.red,
-        ),
+        const SnackBar(content: Text('Please select a complaint first'), backgroundColor: Colors.red),
       );
       return;
     }
 
     if (_selectedStaff == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select a staff member from the filtered list'),
-          backgroundColor: Colors.red,
-        ),
+        const SnackBar(content: Text('Please select a staff member'), backgroundColor: Colors.red),
       );
       return;
     }
 
-    // FIXED: Validate department match by NAME instead of ID
     final complaintDeptName = _selectedComplaint!.departmentName?.toString().toLowerCase().trim() ?? '';
     final staffDeptName = _selectedStaff!.departmentName?.toString().toLowerCase().trim() ?? '';
 
     if (complaintDeptName != staffDeptName) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            'Complaint (${_selectedComplaint!.departmentName}) and staff (${_selectedStaff!.departmentName}) must be in the same department!',
-          ),
+          content: Text('Department mismatch: ${_selectedComplaint!.departmentName} vs ${_selectedStaff!.departmentName}'),
           backgroundColor: Colors.red,
         ),
       );
@@ -198,10 +191,7 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
     final userId = await _authService.getUserId();
     if (userId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('User not logged in'),
-          backgroundColor: Colors.red,
-        ),
+        const SnackBar(content: Text('User not logged in'), backgroundColor: Colors.red),
       );
       return;
     }
@@ -255,41 +245,50 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
       ),
     );
 
-    if (confirmed == true) {
-      try {
-        setState(() => _isLoading = true);
+    if (confirmed != true) return;
 
-        await _assignmentService.assignComplaintToStaff(
-          complaintId: _selectedComplaint!.complaintId,
-          staffId: _selectedStaff!.staffId,
-          assignedById: userId,
-          notes: 'Assigned by ${_userRole == 'System_Admin' ? 'System Admin' : 'Department Admin'}',
-        );
+    // Save names BEFORE clearing state
+    final assignedStaffName = _selectedStaff!.fullName ?? 'staff member';
+    final assignedComplaintTitle = _selectedComplaint!.title;
 
-        if (!mounted) return;
+    try {
+      setState(() => _isLoading = true);
 
-        await _loadData();
+      await _assignmentService.assignComplaintToStaff(
+        complaintId: _selectedComplaint!.complaintId,
+        staffId: _selectedStaff!.staffId,
+        assignedById: userId,
+        notes: 'Assigned by ${_userRole == 'System_Admin' ? 'System Admin' : 'Department Admin'}',
+      );
 
-        setState(() {
-          _selectedComplaint = null;
-          _selectedStaff = null;
-          _filteredStaff = [];
-        });
+      if (!mounted) return;
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Complaint assigned to ${_selectedStaff!.fullName ?? 'staff member'} successfully'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } catch (e) {
-        setState(() => _isLoading = false);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-          );
-        }
-      }
+      // Clear selection BEFORE reload
+      setState(() {
+        _selectedComplaint = null;
+        _selectedStaff = null;
+        _filteredStaff = [];
+      });
+
+      // Reload fresh data — assigned complaint won't come back
+      await _loadData();
+
+      if (!mounted) return;
+
+      // Use saved names (state already cleared)
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('"$assignedComplaintTitle" assigned to $assignedStaffName successfully'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+      );
     }
   }
 
@@ -332,17 +331,25 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
         setState(() => _isLoading = true);
         await _assignmentService.rejectComplaint(complaint.complaintId, reason);
         if (!mounted) return;
+
+        setState(() {
+          _selectedComplaint = null;
+          _selectedStaff = null;
+          _filteredStaff = [];
+        });
+
         await _loadData();
+
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Complaint rejected'), backgroundColor: Colors.red),
+          const SnackBar(content: Text('Complaint rejected successfully'), backgroundColor: Colors.red),
         );
       } catch (e) {
+        if (!mounted) return;
         setState(() => _isLoading = false);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
       }
     }
   }
@@ -409,7 +416,9 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
             onPressed: () => Navigator.pop(context),
           ),
           title: Text(
-            _userRole == 'System_Admin' ? 'Complaint Routing (All Departments)' : 'Complaint Routing - $_userDepartmentName',
+            _userRole == 'System_Admin'
+                ? 'Complaint Routing (All Departments)'
+                : 'Complaint Routing - $_userDepartmentName',
             style: TextStyle(color: Colors.grey[900]),
           ),
         ),
@@ -427,10 +436,7 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
             icon: const Icon(Icons.arrow_back, color: Colors.grey),
             onPressed: () => Navigator.pop(context),
           ),
-          title: Text(
-            'Complaint Routing',
-            style: TextStyle(color: Colors.grey[900]),
-          ),
+          title: Text('Complaint Routing', style: TextStyle(color: Colors.grey[900])),
         ),
         body: Center(
           child: Padding(
@@ -440,16 +446,12 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
               children: [
                 const Icon(Icons.error_outline, size: 48, color: Colors.red),
                 const SizedBox(height: 16),
-                Text(
-                  'Error loading data',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[800]),
-                ),
+                Text('Error loading data',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[800])),
                 const SizedBox(height: 8),
-                Text(
-                  _errorMessage!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                ),
+                Text(_errorMessage!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 14, color: Colors.grey[600])),
                 const SizedBox(height: 24),
                 ElevatedButton.icon(
                   onPressed: _loadData,
@@ -482,7 +484,9 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
-          _userRole == 'System_Admin' ? 'Complaint Routing (All Departments)' : 'Complaint Routing - $_userDepartmentName',
+          _userRole == 'System_Admin'
+              ? 'Complaint Routing (All Departments)'
+              : 'Complaint Routing - $_userDepartmentName',
           style: TextStyle(color: Colors.grey[900]),
         ),
         actions: [
@@ -510,10 +514,7 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
               child: DropdownButton<String>(
                 value: _selectedFilter,
                 items: _filterOptions.map((filter) {
-                  return DropdownMenuItem(
-                    value: filter,
-                    child: Text(filter),
-                  );
+                  return DropdownMenuItem(value: filter, child: Text(filter));
                 }).toList(),
                 onChanged: (value) {
                   if (value != null) {
@@ -537,22 +538,22 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
       ),
       body: Column(
         children: [
+          // Stats Row - Updated to show accurate counts
           Container(
             padding: const EdgeInsets.all(16),
             color: Colors.white,
             child: Row(
               children: [
-                Expanded(
-                  child: _buildRoutingStat('${_allComplaints.length}', 'Total'),
-                ),
+                Expanded(child: _buildRoutingStat('${_allComplaints.length}', 'Total')),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: _buildRoutingStat('${_allComplaints.where((c) => c.assignedToId == null).length}', 'Unassigned'),
+                  child: _buildRoutingStat(
+                    '${_allComplaints.where((c) => c.assignedToId == null).length}',
+                    'Unassigned',
+                  ),
                 ),
                 const SizedBox(width: 12),
-                Expanded(
-                  child: _buildRoutingStat('${_allStaff.length}', 'Available Staff'),
-                ),
+                Expanded(child: _buildRoutingStat('${_allStaff.length}', 'Field Staff')),
               ],
             ),
           ),
@@ -587,15 +588,18 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                 if (constraints.maxWidth > 600) {
                   return Row(
                     children: [
+                      // Complaints Panel
                       Expanded(
                         child: Padding(
                           padding: const EdgeInsets.all(16),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('$_selectedFilter Complaints', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                              const SizedBox(height: 8),
-                              Text('Select complaint to assign', style: TextStyle(fontSize: 14, color: Colors.grey[600])),
+                              Text('$_selectedFilter Complaints',
+                                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 4),
+                              Text('Tap a complaint to see matching staff',
+                                  style: TextStyle(fontSize: 13, color: Colors.grey[600])),
                               const SizedBox(height: 16),
                               Expanded(
                                 child: filteredComplaints.isEmpty
@@ -605,15 +609,15 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                                     children: [
                                       Icon(Icons.inbox, size: 48, color: Colors.grey[400]),
                                       const SizedBox(height: 8),
-                                      Text('No complaints match filter', style: TextStyle(color: Colors.grey[600])),
+                                      Text('No unassigned complaints available',
+                                          style: TextStyle(color: Colors.grey[600])),
                                     ],
                                   ),
                                 )
                                     : ListView.builder(
                                   itemCount: filteredComplaints.length,
-                                  itemBuilder: (context, index) {
-                                    return _buildComplaintCard(filteredComplaints[index]);
-                                  },
+                                  itemBuilder: (context, index) =>
+                                      _buildComplaintCard(filteredComplaints[index]),
                                 ),
                               ),
                             ],
@@ -623,19 +627,21 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
 
                       Container(width: 1, color: Colors.grey[300]),
 
+                      // Staff Panel
                       Expanded(
                         child: Padding(
                           padding: const EdgeInsets.all(16),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text('Available Staff', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                              const SizedBox(height: 8),
+                              const Text('Field Staff',
+                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 4),
                               Text(
                                 hasSelectedComplaint
                                     ? 'Staff in ${_selectedComplaint!.departmentName ?? "matching"} department'
-                                    : 'Select a complaint first',
-                                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                                    : 'Select a complaint to see available staff',
+                                style: TextStyle(fontSize: 13, color: Colors.grey[600]),
                               ),
                               const SizedBox(height: 16),
                               Expanded(
@@ -646,7 +652,8 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                                     children: [
                                       Icon(Icons.info_outline, size: 48, color: Colors.grey[400]),
                                       const SizedBox(height: 8),
-                                      Text('Select a complaint first', style: TextStyle(color: Colors.grey[600])),
+                                      Text('Select a complaint first',
+                                          style: TextStyle(color: Colors.grey[600])),
                                     ],
                                   ),
                                 )
@@ -655,26 +662,21 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      Icon(Icons.people_outline, size: 48, color: Colors.orange[400]),
+                                      Icon(Icons.people_outline,
+                                          size: 48, color: Colors.orange[400]),
                                       const SizedBox(height: 8),
                                       Text(
-                                        'No staff available in ${_selectedComplaint!.departmentName ?? "this"} department',
+                                        'No Field Staff available in\n${_selectedComplaint!.departmentName ?? "this"} department',
                                         textAlign: TextAlign.center,
                                         style: TextStyle(fontSize: 14, color: Colors.orange[700]),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        'Please add staff to this department first',
-                                        style: TextStyle(fontSize: 12, color: Colors.grey[500]),
                                       ),
                                     ],
                                   ),
                                 )
                                     : ListView.builder(
                                   itemCount: _filteredStaff.length,
-                                  itemBuilder: (context, index) {
-                                    return _buildStaffCard(_filteredStaff[index]);
-                                  },
+                                  itemBuilder: (context, index) =>
+                                      _buildStaffCard(_filteredStaff[index]),
                                 ),
                               ),
                             ],
@@ -692,7 +694,8 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('$_selectedFilter Complaints', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                              Text('$_selectedFilter Complaints',
+                                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                               const SizedBox(height: 16),
                               if (filteredComplaints.isEmpty)
                                 Center(
@@ -700,7 +703,8 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                                     children: [
                                       Icon(Icons.inbox, size: 48, color: Colors.grey[400]),
                                       const SizedBox(height: 8),
-                                      Text('No complaints match filter', style: TextStyle(color: Colors.grey[600])),
+                                      Text('No unassigned complaints available',
+                                          style: TextStyle(color: Colors.grey[600])),
                                     ],
                                   ),
                                 )
@@ -715,7 +719,8 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text('Available Staff', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                              const Text('Field Staff',
+                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                               const SizedBox(height: 8),
                               Text(
                                 hasSelectedComplaint
@@ -730,7 +735,8 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                                     children: [
                                       Icon(Icons.info_outline, size: 48, color: Colors.grey[400]),
                                       const SizedBox(height: 8),
-                                      Text('Select a complaint first', style: TextStyle(color: Colors.grey[600])),
+                                      Text('Select a complaint first',
+                                          style: TextStyle(color: Colors.grey[600])),
                                     ],
                                   ),
                                 )
@@ -741,14 +747,9 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                                       Icon(Icons.people_outline, size: 48, color: Colors.orange[400]),
                                       const SizedBox(height: 8),
                                       Text(
-                                        'No staff available in ${_selectedComplaint!.departmentName ?? "this"} department',
+                                        'No Field Staff available in\n${_selectedComplaint!.departmentName ?? "this"} department',
                                         textAlign: TextAlign.center,
                                         style: TextStyle(fontSize: 14, color: Colors.orange[700]),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        'Please add staff to this department first',
-                                        style: TextStyle(fontSize: 12, color: Colors.grey[500]),
                                       ),
                                     ],
                                   ),
@@ -766,11 +767,17 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
             ),
           ),
 
+          // Bottom Action Bar
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.white,
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, -2))],
+              boxShadow: [
+                BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 4,
+                    offset: const Offset(0, -2))
+              ],
             ),
             child: Row(
               children: [
@@ -779,13 +786,20 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _selectedComplaint == null ? 'No complaint selected' : _selectedComplaint!.title,
-                        style: TextStyle(fontSize: 14, color: Colors.grey[800], fontWeight: FontWeight.w500),
+                        _selectedComplaint == null
+                            ? 'No complaint selected'
+                            : _selectedComplaint!.title,
+                        style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[800],
+                            fontWeight: FontWeight.w500),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                       Text(
-                        _selectedStaff == null ? 'No staff selected' : '${_selectedStaff!.fullName ?? ''}',
+                        _selectedStaff == null
+                            ? 'No staff selected'
+                            : _selectedStaff!.fullName ?? '',
                         style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                       ),
                     ],
@@ -793,7 +807,9 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                 ),
                 const SizedBox(width: 16),
                 OutlinedButton(
-                  onPressed: _selectedComplaint == null ? null : () => _rejectComplaint(_selectedComplaint!),
+                  onPressed: _selectedComplaint == null
+                      ? null
+                      : () => _rejectComplaint(_selectedComplaint!),
                   style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: Colors.red),
                     foregroundColor: Colors.red,
@@ -803,10 +819,13 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                 ),
                 const SizedBox(width: 12),
                 ElevatedButton(
-                  onPressed: _assignComplaint,
+                  onPressed: _selectedComplaint != null && _selectedStaff != null
+                      ? _assignComplaint
+                      : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blue,
                     foregroundColor: Colors.white,
+                    disabledBackgroundColor: Colors.grey[300],
                     padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
                   ),
                   child: const Text('Assign Complaint'),
@@ -822,7 +841,9 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
   Widget _buildRoutingStat(String value, String label) {
     return Column(
       children: [
-        Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blue)),
+        Text(value,
+            style: const TextStyle(
+                fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blue)),
         const SizedBox(height: 4),
         Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
       ],
@@ -831,8 +852,11 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
 
   Widget _buildComplaintCard(Complaint complaint) {
     final isSelected = _selectedComplaint?.complaintId == complaint.complaintId;
-    final priorityColor = complaint.priority == 'High' ? Colors.red :
-    complaint.priority == 'Medium' ? Colors.orange : Colors.green;
+    final priorityColor = complaint.priority == 'High'
+        ? Colors.red
+        : complaint.priority == 'Medium'
+        ? Colors.orange
+        : Colors.green;
     final statusColor = _getStatusColor(complaint.currentStatus);
     final departmentColor = _getDepartmentColor(complaint.departmentName);
 
@@ -841,7 +865,9 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
       elevation: isSelected ? 4 : 1,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: isSelected ? Colors.blue : Colors.grey[300]!, width: isSelected ? 2 : 1),
+        side: BorderSide(
+            color: isSelected ? Colors.blue : Colors.grey[300]!,
+            width: isSelected ? 2 : 1),
       ),
       child: InkWell(
         onTap: () => _onComplaintSelected(complaint),
@@ -860,10 +886,7 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                         Container(
                           width: 8,
                           height: 8,
-                          decoration: BoxDecoration(
-                            color: statusColor,
-                            shape: BoxShape.circle,
-                          ),
+                          decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle),
                         ),
                         const SizedBox(width: 6),
                         Expanded(
@@ -879,8 +902,14 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                   ),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(color: priorityColor.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
-                    child: Text(complaint.priority, style: TextStyle(fontSize: 10, color: priorityColor, fontWeight: FontWeight.w500)),
+                    decoration: BoxDecoration(
+                        color: priorityColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(4)),
+                    child: Text(complaint.priority,
+                        style: TextStyle(
+                            fontSize: 10,
+                            color: priorityColor,
+                            fontWeight: FontWeight.w500)),
                   ),
                 ],
               ),
@@ -892,41 +921,35 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: departmentColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      complaint.departmentName ?? 'No Dept',
-                      style: TextStyle(fontSize: 10, color: departmentColor, fontWeight: FontWeight.w500),
-                    ),
+                        color: departmentColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(4)),
+                    child: Text(complaint.departmentName ?? 'No Dept',
+                        style: TextStyle(
+                            fontSize: 10,
+                            color: departmentColor,
+                            fontWeight: FontWeight.w500)),
                   ),
-                  Text(
-                    _getStatusText(complaint.currentStatus),
-                    style: TextStyle(fontSize: 11, color: statusColor, fontWeight: FontWeight.w500),
+                  Text(_getStatusText(complaint.currentStatus),
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: statusColor,
+                          fontWeight: FontWeight.w500)),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                        color: Colors.grey[200], borderRadius: BorderRadius.circular(4)),
+                    child: Text(complaint.categoryName ?? 'General',
+                        style: const TextStyle(fontSize: 10)),
                   ),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: Colors.grey[200],
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      complaint.categoryName ?? 'General',
-                      style: const TextStyle(fontSize: 10),
-                    ),
+                        color: Colors.blue[50], borderRadius: BorderRadius.circular(4)),
+                    child: Text(complaint.zoneName ?? 'Unknown',
+                        style: TextStyle(fontSize: 10, color: Colors.blue[700])),
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.blue[50],
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      complaint.zoneName ?? 'Unknown',
-                      style: TextStyle(fontSize: 10, color: Colors.blue[700]),
-                    ),
-                  ),
-                  Text(complaint.complaintNumber ?? 'N/A', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                  Text(complaint.complaintNumber ?? 'N/A',
+                      style: TextStyle(fontSize: 11, color: Colors.grey[500])),
                 ],
               ),
               const SizedBox(height: 8),
@@ -941,34 +964,15 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                 children: [
                   Icon(Icons.location_on, size: 14, color: Colors.grey[500]),
                   const SizedBox(width: 4),
-                  Expanded(child: Text(complaint.locationAddress, style: TextStyle(fontSize: 11, color: Colors.grey[600]))),
+                  Expanded(
+                      child: Text(complaint.locationAddress,
+                          style: TextStyle(fontSize: 11, color: Colors.grey[600]))),
                   Icon(Icons.thumb_up, size: 14, color: Colors.grey[500]),
                   const SizedBox(width: 4),
-                  Text('${complaint.upvoteCount}', style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+                  Text('${complaint.upvoteCount}',
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600])),
                 ],
               ),
-              if (complaint.assignedToId != null) ...[
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: Colors.blue[50],
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.person, size: 12, color: Colors.blue),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          'Assigned to staff',
-                          style: TextStyle(fontSize: 10, color: Colors.blue[700]),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
             ],
           ),
         ),
@@ -976,30 +980,24 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
     );
   }
 
-  // =====================================================
-  // FIXED: Staff card now uses department name comparison
-  // =====================================================
   Widget _buildStaffCard(StaffProfile staff) {
     final isSelected = _selectedStaff?.staffId == staff.staffId;
     final isAvailable = staff.isAvailable;
-
-    // Compare by department NAME instead of ID
-    final complaintDeptName = _selectedComplaint?.departmentName?.toString().toLowerCase().trim() ?? '';
-    final staffDeptName = staff.departmentName?.toString().toLowerCase().trim() ?? '';
-    final isSameDepartment = complaintDeptName == staffDeptName;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: isSelected ? 4 : 1,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: isSelected ? Colors.blue : Colors.grey[300]!, width: isSelected ? 2 : 1),
+        side: BorderSide(
+            color: isSelected ? Colors.blue : Colors.grey[300]!,
+            width: isSelected ? 2 : 1),
       ),
       child: InkWell(
-        onTap: isAvailable && isSameDepartment ? () => setState(() => _selectedStaff = staff) : null,
+        onTap: isAvailable ? () => setState(() => _selectedStaff = staff) : null,
         borderRadius: BorderRadius.circular(8),
         child: Opacity(
-          opacity: isAvailable && isSameDepartment ? 1.0 : 0.6,
+          opacity: isAvailable ? 1.0 : 0.5,
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
@@ -1008,70 +1006,58 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
                   width: 50,
                   height: 50,
                   decoration: BoxDecoration(
-                    color: isSameDepartment ? Colors.blue[100] : Colors.grey[200],
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.person,
-                    color: isSameDepartment ? Colors.blue : Colors.grey,
-                    size: 24,
-                  ),
+                      color: Colors.blue[100], shape: BoxShape.circle),
+                  child: const Icon(Icons.person, color: Colors.blue, size: 24),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(staff.fullName ?? 'Unknown', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                      Text(staff.fullName ?? 'Unknown',
+                          style: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w600)),
                       const SizedBox(height: 4),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: _getDepartmentColor(staff.departmentName).withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          staff.departmentName ?? 'No Dept',
-                          style: TextStyle(fontSize: 10, color: _getDepartmentColor(staff.departmentName), fontWeight: FontWeight.w500),
-                        ),
+                            color: _getDepartmentColor(staff.departmentName).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(4)),
+                        child: Text(staff.departmentName ?? 'No Dept',
+                            style: TextStyle(
+                                fontSize: 10,
+                                color: _getDepartmentColor(staff.departmentName),
+                                fontWeight: FontWeight.w500)),
                       ),
                       const SizedBox(height: 4),
                       Row(
                         children: [
                           Icon(Icons.assignment, size: 12, color: Colors.grey[500]),
                           const SizedBox(width: 4),
-                          Text('${staff.pendingAssignments} tasks', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                          Text('${staff.pendingAssignments} tasks',
+                              style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                           const SizedBox(width: 12),
                           const Icon(Icons.star, size: 12, color: Colors.amber),
                           const SizedBox(width: 4),
-                          Text('${staff.performanceScore.toStringAsFixed(1)}%', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                          Text('${staff.performanceScore.toStringAsFixed(1)}%',
+                              style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                         ],
                       ),
                     ],
                   ),
                 ),
-                Column(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: isAvailable ? Colors.green[50] : Colors.grey[200],
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        isAvailable ? 'Available' : 'Busy',
-                        style: TextStyle(fontSize: 10, color: isAvailable ? Colors.green : Colors.grey, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                    if (!isSameDepartment && _selectedComplaint != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          'Wrong dept',
-                          style: TextStyle(fontSize: 8, color: Colors.red[400]),
-                        ),
-                      ),
-                  ],
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                      color: isAvailable ? Colors.green[50] : Colors.grey[200],
+                      borderRadius: BorderRadius.circular(12)),
+                  child: Text(
+                    isAvailable ? 'Available' : 'Busy',
+                    style: TextStyle(
+                        fontSize: 10,
+                        color: isAvailable ? Colors.green : Colors.grey,
+                        fontWeight: FontWeight.w600),
+                  ),
                 ),
               ],
             ),

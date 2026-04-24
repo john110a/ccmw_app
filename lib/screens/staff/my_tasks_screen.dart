@@ -1,3 +1,5 @@
+// lib/screens/staff/my_tasks_screen.dart
+
 import 'package:flutter/material.dart';
 import '../../services/staff_action_service.dart';
 import '../../services/AuthService.dart';
@@ -25,6 +27,8 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
   int _totalActive = 0;
   int _totalCompleted = 0;
   int _overdueCount = 0;
+  int _inProgressCount = 0;
+  int _acceptedCount = 0;
 
   @override
   void initState() {
@@ -41,7 +45,7 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
       _loadTasks();
     } else {
       setState(() {
-        _errorMessage = 'Staff ID not found';
+        _errorMessage = 'Staff ID not found. Please login again.';
         _isLoading = false;
       });
     }
@@ -53,22 +57,38 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
     setState(() => _isLoading = true);
     try {
       // Load active tasks
+      print('📡 Loading active tasks for staff: $_staffId');
       final activeData = await _staffActionService.getMyAssignments(_staffId!, status: 'active');
-      final assignments = activeData['Assignments'] as List? ?? [];
+      print('📦 Active data: $activeData');
+
+      final activeAssignments = activeData['Assignments'] as List? ?? [];
+      final activeStats = activeData['Statistics'] ?? {};
 
       // Load completed tasks
+      print('📡 Loading completed tasks for staff: $_staffId');
       final completedData = await _staffActionService.getMyAssignments(_staffId!, status: 'completed');
+      print('📦 Completed data: $completedData');
+
       final completedAssignments = completedData['Assignments'] as List? ?? [];
 
+      // Print first active task for debugging
+      if (activeAssignments.isNotEmpty) {
+        print('🔍 First active task: ${activeAssignments[0]}');
+        print('🔍 Active task keys: ${activeAssignments[0].keys}');
+      }
+
       setState(() {
-        _activeTasks = assignments.cast<Map<String, dynamic>>();
+        _activeTasks = activeAssignments.cast<Map<String, dynamic>>();
         _completedTasks = completedAssignments.cast<Map<String, dynamic>>();
         _totalActive = _activeTasks.length;
         _totalCompleted = _completedTasks.length;
-        _overdueCount = _activeTasks.where((t) => t['isOverdue'] == true).length;
+        _overdueCount = activeStats['Overdue'] ?? 0;
+        _inProgressCount = activeStats['InProgress'] ?? 0;
+        _acceptedCount = activeStats['Accepted'] ?? 0;
         _isLoading = false;
       });
     } catch (e) {
+      print('❌ Error loading tasks: $e');
       setState(() {
         _errorMessage = e.toString();
         _isLoading = false;
@@ -77,25 +97,41 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
   }
 
   Future<void> _navigateToTaskDetail(Map<String, dynamic> task) async {
+    // Extract values with proper key names (API uses capitalized keys)
+    final assignmentId = task['AssignmentId']?.toString() ?? task['assignmentId']?.toString();
+    final title = task['Title']?.toString() ?? task['title']?.toString() ?? 'No Title';
+    final complaintNumber = task['ComplaintNumber']?.toString() ?? task['complaintNumber']?.toString() ?? 'N/A';
+    final description = task['Description']?.toString() ?? task['description']?.toString() ?? 'No description';
+    final priority = task['Priority']?.toString() ?? task['priority']?.toString() ?? 'Medium';
+    final categoryName = task['CategoryName']?.toString() ?? task['categoryName']?.toString() ?? 'General';
+    final zoneName = task['ZoneName']?.toString() ?? task['zoneName']?.toString() ?? 'Unknown';
+    final locationAddress = task['LocationAddress']?.toString() ?? task['locationAddress']?.toString() ?? '';
+    final locationLatitude = task['LocationLatitude'] ?? task['locationLatitude'];
+    final locationLongitude = task['LocationLongitude'] ?? task['locationLongitude'];
+    final acceptedAt = task['AcceptedAt'] ?? task['acceptedAt'];
+    final startedAt = task['StartedAt'] ?? task['startedAt'];
+    final completedAt = task['CompletedAt'] ?? task['completedAt'];
+    final status = task['Status']?.toString() ?? task['status']?.toString() ?? 'Assigned';
+
     final result = await Navigator.pushNamed(
       context,
       Routes.taskDetail,
       arguments: {
-        'assignmentId': task['assignmentId'],
+        'assignmentId': assignmentId,
         'staffId': _staffId,
-        'title': task['title'],
-        'complaintNumber': task['complaintNumber'],
-        'description': task['description'],
-        'priority': task['priority'],
-        'categoryName': task['categoryName'],
-        'zoneName': task['zoneName'],
-        'locationAddress': task['locationAddress'],
-        'locationLatitude': task['locationLatitude'],
-        'locationLongitude': task['locationLongitude'],
-        'acceptedAt': task['acceptedAt'],
-        'startedAt': task['startedAt'],
-        'completedAt': task['completedAt'],
-        'status': task['status'],
+        'title': title,
+        'complaintNumber': complaintNumber,
+        'description': description,
+        'priority': priority,
+        'categoryName': categoryName,
+        'zoneName': zoneName,
+        'locationAddress': locationAddress,
+        'locationLatitude': locationLatitude,
+        'locationLongitude': locationLongitude,
+        'acceptedAt': acceptedAt,
+        'startedAt': startedAt,
+        'completedAt': completedAt,
+        'status': status,
       },
     );
 
@@ -110,6 +146,15 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
       case 'InProgress': return 'In Progress';
       case 'Completed': return 'Completed';
       default: return 'Assigned';
+    }
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'Completed': return Colors.green;
+      case 'InProgress': return Colors.blue;
+      case 'Accepted': return Colors.orange;
+      default: return Colors.grey;
     }
   }
 
@@ -163,7 +208,7 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
               children: [
                 Expanded(child: _buildStatCard('$_totalActive', 'Active', Colors.blue)),
                 const SizedBox(width: 12),
-                Expanded(child: _buildStatCard('$_totalCompleted', 'Completed', Colors.green)),
+                Expanded(child: _buildStatCard('$_inProgressCount', 'In Progress', Colors.orange)),
                 const SizedBox(width: 12),
                 Expanded(
                   child: _buildStatCard(
@@ -298,20 +343,25 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
   }
 
   Widget _buildTaskCard(Map<String, dynamic> task) {
-    final priorityColor = task['priority'] == 'High'
+    // Extract values with proper key names (API uses capitalized keys)
+    final title = task['Title']?.toString() ?? task['title']?.toString() ?? 'No Title';
+    final complaintNumber = task['ComplaintNumber']?.toString() ?? task['complaintNumber']?.toString() ?? 'No Number';
+    final description = task['Description']?.toString() ?? task['description']?.toString() ?? 'No description';
+    final locationAddress = task['LocationAddress']?.toString() ?? task['locationAddress']?.toString() ?? 'No address';
+    final priority = task['Priority']?.toString() ?? task['priority']?.toString() ?? 'Medium';
+    final status = task['Status']?.toString() ?? task['status']?.toString() ?? 'Assigned';
+    final categoryName = task['CategoryName']?.toString() ?? task['categoryName']?.toString() ?? 'General';
+    final zoneName = task['ZoneName']?.toString() ?? task['zoneName']?.toString() ?? 'Unknown';
+    final isOverdue = task['IsOverdue'] == true || task['isOverdue'] == true;
+
+    final priorityColor = priority == 'High'
         ? Colors.red
-        : task['priority'] == 'Medium'
+        : priority == 'Medium'
         ? Colors.orange
         : Colors.green;
 
-    final status = task['status'] ?? 'Assigned';
     final statusDisplay = _getStatusDisplay(status);
-    final statusColor = status == 'Completed' ? Colors.green
-        : status == 'InProgress' ? Colors.blue
-        : status == 'Accepted' ? Colors.orange
-        : Colors.grey;
-
-    final isOverdue = task['isOverdue'] == true;
+    final statusColor = _getStatusColor(status);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -333,7 +383,7 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
                 children: [
                   Expanded(
                     child: Text(
-                      task['title'] ?? 'No Title',
+                      title,
                       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -346,7 +396,7 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
-                      task['priority'] ?? 'Medium',
+                      priority,
                       style: TextStyle(fontSize: 12, color: priorityColor, fontWeight: FontWeight.w500),
                     ),
                   ),
@@ -356,7 +406,7 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
               Row(
                 children: [
                   Text(
-                    task['complaintNumber'] ?? 'No Number',
+                    complaintNumber,
                     style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                   ),
                   if (isOverdue) ...[
@@ -377,7 +427,7 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                task['description'] ?? 'No description',
+                description,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontSize: 13, color: Colors.grey[700]),
@@ -389,7 +439,7 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      task['locationAddress'] ?? 'No address',
+                      locationAddress,
                       style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -417,14 +467,14 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
                       Icon(Icons.category, size: 12, color: Colors.grey[400]),
                       const SizedBox(width: 4),
                       Text(
-                        task['categoryName'] ?? 'General',
+                        categoryName,
                         style: TextStyle(fontSize: 11, color: Colors.grey[500]),
                       ),
                       const SizedBox(width: 12),
                       Icon(Icons.location_city, size: 12, color: Colors.grey[400]),
                       const SizedBox(width: 4),
                       Text(
-                        task['zoneName'] ?? 'Unknown',
+                        zoneName,
                         style: TextStyle(fontSize: 11, color: Colors.grey[500]),
                       ),
                     ],

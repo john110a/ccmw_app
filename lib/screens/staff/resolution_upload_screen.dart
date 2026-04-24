@@ -1,4 +1,5 @@
 // lib/screens/staff/resolution_upload_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
@@ -19,12 +20,14 @@ class _ResolutionUploadScreenState extends State<ResolutionUploadScreen> {
   String _assignmentId = '';
   String _staffId = '';
   String _complaintTitle = '';
+  String _complaintNumber = '';
 
   final TextEditingController _notesController = TextEditingController();
-  File? _beforePhoto;
   File? _afterPhoto;
   bool _isSubmitting = false;
   String? _errorMessage;
+  bool _photoUploaded = false;
+  String? _uploadedPhotoUrl;
 
   @override
   void didChangeDependencies() {
@@ -35,6 +38,7 @@ class _ResolutionUploadScreenState extends State<ResolutionUploadScreen> {
         _assignmentId = args['assignmentId']?.toString() ?? '';
         _staffId = args['staffId']?.toString() ?? '';
         _complaintTitle = args['complaintTitle']?.toString() ?? '';
+        _complaintNumber = args['complaintNumber']?.toString() ?? '';
       });
     }
   }
@@ -47,22 +51,6 @@ class _ResolutionUploadScreenState extends State<ResolutionUploadScreen> {
     });
   }
 
-  Future<void> _pickBeforePhoto() async {
-    try {
-      final XFile? photo = await _imagePicker.pickImage(
-        source: ImageSource.camera,
-        imageQuality: 80,
-      );
-      if (photo != null) {
-        setState(() => _beforePhoto = File(photo.path));
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error picking photo: $e'), backgroundColor: Colors.red),
-      );
-    }
-  }
-
   Future<void> _pickAfterPhoto() async {
     try {
       final XFile? photo = await _imagePicker.pickImage(
@@ -70,57 +58,103 @@ class _ResolutionUploadScreenState extends State<ResolutionUploadScreen> {
         imageQuality: 80,
       );
       if (photo != null) {
-        setState(() => _afterPhoto = File(photo.path));
+        setState(() {
+          _afterPhoto = File(photo.path);
+          _photoUploaded = false;
+        });
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error picking photo: $e'), backgroundColor: Colors.red),
-      );
+      _showError('Error picking photo: $e');
     }
   }
 
-  Future<void> _submitResolution() async {
-    if (_notesController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter resolution notes'), backgroundColor: Colors.red),
-      );
-      return;
-    }
-
-    if (_assignmentId.isEmpty || _staffId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Missing task information'), backgroundColor: Colors.red),
-      );
+  Future<void> _uploadPhoto() async {
+    if (_afterPhoto == null) {
+      _showError('Please take an after photo first');
       return;
     }
 
     setState(() => _isSubmitting = true);
 
     try {
-      // Upload after photo if available
-      if (_afterPhoto != null) {
-        await _staffActionService.uploadResolutionPhoto(
+      final result = await _staffActionService.uploadResolutionPhoto(
+        _assignmentId,
+        _staffId,
+        _afterPhoto!,
+      );
+
+      setState(() {
+        _photoUploaded = true;
+        _uploadedPhotoUrl = result['photoUrl'];
+        _isSubmitting = false;
+      });
+
+      _showSuccess('Photo uploaded successfully!');
+    } catch (e) {
+      setState(() => _isSubmitting = false);
+      _showError('Failed to upload photo: $e');
+    }
+  }
+
+  Future<void> _submitResolution() async {
+    if (_notesController.text.trim().isEmpty) {
+      _showError('Please enter resolution notes');
+      return;
+    }
+
+    if (_assignmentId.isEmpty || _staffId.isEmpty) {
+      _showError('Missing task information');
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+
+    try {
+      // First upload photo if available and not yet uploaded
+      String? photoUrl;
+      if (_afterPhoto != null && !_photoUploaded) {
+        final result = await _staffActionService.uploadResolutionPhoto(
           _assignmentId,
           _staffId,
           _afterPhoto!,
         );
+        photoUrl = result['photoUrl'];
+      } else if (_photoUploaded) {
+        photoUrl = _uploadedPhotoUrl;
       }
 
+      // Submit resolution
       await _staffActionService.resolveComplaint(
         _assignmentId,
         _staffId,
-        _notesController.text,
+        _notesController.text.trim(),
+        afterPhotoUrl: photoUrl,
       );
 
       if (mounted) {
-        Navigator.pop(context, true);
+        _showSuccess('Resolution submitted successfully!');
+        Future.delayed(const Duration(seconds: 1), () {
+          if (mounted) {
+            Navigator.pop(context, true);
+          }
+        });
       }
     } catch (e) {
       setState(() => _isSubmitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-      );
+      _showError('Error: $e');
     }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
+  }
+
+  void _showSuccess(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.green),
+    );
   }
 
   @override
@@ -140,6 +174,9 @@ class _ResolutionUploadScreenState extends State<ResolutionUploadScreen> {
         body: const Center(child: CircularProgressIndicator()),
       );
     }
+
+    final canSubmit = _notesController.text.trim().isNotEmpty && !_isSubmitting;
+    final hasPhoto = _afterPhoto != null;
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
@@ -174,6 +211,13 @@ class _ResolutionUploadScreenState extends State<ResolutionUploadScreen> {
                     _complaintTitle,
                     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
+                  if (_complaintNumber.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      _complaintNumber,
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                  ],
                   const SizedBox(height: 8),
                   Container(
                     padding: const EdgeInsets.all(8),
@@ -199,7 +243,7 @@ class _ResolutionUploadScreenState extends State<ResolutionUploadScreen> {
 
             const SizedBox(height: 16),
 
-            // Before Photo
+            // After Photo (Required for evidence)
             Container(
               margin: const EdgeInsets.all(16),
               padding: const EdgeInsets.all(16),
@@ -217,74 +261,31 @@ class _ResolutionUploadScreenState extends State<ResolutionUploadScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Before Photo (Optional)',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 8),
-                  GestureDetector(
-                    onTap: _pickBeforePhoto,
-                    child: Container(
-                      height: 180,
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[100],
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.grey[300]!),
+                  Row(
+                    children: [
+                      const Text(
+                        'After Photo',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                       ),
-                      child: _beforePhoto != null
-                          ? ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.file(
-                          _beforePhoto!,
-                          fit: BoxFit.cover,
-                          width: double.infinity,
+                      const SizedBox(width: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.red[50],
+                          borderRadius: BorderRadius.circular(4),
                         ),
-                      )
-                          : Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.camera_alt, size: 48, color: Colors.grey[400]),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Tap to take before photo',
-                            style: TextStyle(color: Colors.grey[600]),
-                          ),
-                        ],
+                        child: Text(
+                          'Recommended',
+                          style: TextStyle(fontSize: 10, color: Colors.red[700]),
+                        ),
                       ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // After Photo
-            Container(
-              margin: const EdgeInsets.all(16),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'After Photo (Recommended)',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    ],
                   ),
                   const SizedBox(height: 8),
                   GestureDetector(
                     onTap: _pickAfterPhoto,
                     child: Container(
-                      height: 180,
+                      height: 200,
                       width: double.infinity,
                       decoration: BoxDecoration(
                         color: Colors.grey[100],
@@ -292,13 +293,43 @@ class _ResolutionUploadScreenState extends State<ResolutionUploadScreen> {
                         border: Border.all(color: Colors.grey[300]!),
                       ),
                       child: _afterPhoto != null
-                          ? ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.file(
-                          _afterPhoto!,
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                        ),
+                          ? Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.file(
+                              _afterPhoto!,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                          if (!_photoUploaded)
+                            Positioned(
+                              bottom: 8,
+                              right: 8,
+                              child: ElevatedButton.icon(
+                                onPressed: _isSubmitting ? null : _uploadPhoto,
+                                icon: _isSubmitting
+                                    ? const SizedBox(
+                                  height: 16,
+                                  width: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                                    : const Icon(Icons.cloud_upload, size: 16),
+                                label: Text(_isSubmitting ? 'Uploading...' : 'Upload'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.blue,
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                ),
+                              ),
+                            ),
+                          if (_photoUploaded)
+                            const Positioned(
+                              top: 8,
+                              right: 8,
+                              child: Icon(Icons.check_circle, color: Colors.green, size: 24),
+                            ),
+                        ],
                       )
                           : Column(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -309,10 +340,38 @@ class _ResolutionUploadScreenState extends State<ResolutionUploadScreen> {
                             'Tap to take after photo',
                             style: TextStyle(color: Colors.grey[600]),
                           ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Take a photo of the resolved issue',
+                            style: TextStyle(fontSize: 11, color: Colors.grey[400]),
+                          ),
                         ],
                       ),
                     ),
                   ),
+                  if (_photoUploaded)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.green[50],
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.check_circle, size: 16, color: Colors.green[700]),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Photo uploaded successfully!',
+                                style: TextStyle(fontSize: 12, color: Colors.green[700]),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -362,7 +421,7 @@ class _ResolutionUploadScreenState extends State<ResolutionUploadScreen> {
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: (_isSubmitting || _notesController.text.trim().isEmpty) ? null : _submitResolution,
+                  onPressed: canSubmit ? _submitResolution : null,
                   icon: _isSubmitting
                       ? const SizedBox(
                     height: 20,
