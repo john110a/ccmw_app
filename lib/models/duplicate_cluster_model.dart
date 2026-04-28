@@ -1,5 +1,6 @@
 // lib/models/duplicate_cluster_model.dart
 import 'complaint_model.dart';
+import 'complaint_photo_model.dart';
 
 class DuplicateCluster {
   final String clusterId;
@@ -27,24 +28,18 @@ class DuplicateCluster {
   });
 
   factory DuplicateCluster.fromJson(Map<String, dynamic> json) {
-    // Parse duplicate entries - your backend returns "DuplicateEntries"
     List<DuplicateEntry> entries = [];
-    if (json['DuplicateEntries'] != null && json['DuplicateEntries'] is List) {
-      entries = (json['DuplicateEntries'] as List)
-          .map((e) => DuplicateEntry.fromJson(e))
-          .toList();
-    } else if (json['duplicateEntries'] != null && json['duplicateEntries'] is List) {
-      entries = (json['duplicateEntries'] as List)
-          .map((e) => DuplicateEntry.fromJson(e))
+    final rawEntries = json['DuplicateEntries'] ?? json['duplicateEntries'];
+    if (rawEntries != null && rawEntries is List) {
+      entries = rawEntries
+          .map((e) => DuplicateEntry.fromJson(e as Map<String, dynamic>))
           .toList();
     }
 
-    // Parse primary complaint - your backend returns "PrimaryComplaint"
     Complaint? primary;
-    if (json['PrimaryComplaint'] != null && json['PrimaryComplaint'] is Map) {
-      primary = Complaint.fromJson(json['PrimaryComplaint']);
-    } else if (json['primaryComplaint'] != null && json['primaryComplaint'] is Map) {
-      primary = Complaint.fromJson(json['primaryComplaint']);
+    final rawPrimary = json['PrimaryComplaint'] ?? json['primaryComplaint'];
+    if (rawPrimary != null && rawPrimary is Map<String, dynamic>) {
+      primary = Complaint.fromJson(rawPrimary);
     }
 
     return DuplicateCluster(
@@ -58,19 +53,19 @@ class DuplicateCluster {
       totalCombinedUpvotes: json['TotalCombinedUpvotes'] ??
           json['totalCombinedUpvotes'] ??
           json['total_combined_upvotes'] ?? 0,
-      createdAt: _parseDateTime(json['CreatedAt'] ?? json['createdAt'] ?? json['created_at']),
+      createdAt: _parseDateTime(
+          json['CreatedAt'] ?? json['createdAt'] ?? json['created_at']),
       clusterRadiusMeters: json['ClusterRadiusMeters'] ??
           json['clusterRadiusMeters'] ??
           json['cluster_radius_meters'] ?? 0,
-      locationLatitude: (json['LocationLatitude'] ??
-          json['locationLatitude'] ??
-          0.0).toDouble(),
-      locationLongitude: (json['LocationLongitude'] ??
-          json['locationLongitude'] ??
-          0.0).toDouble(),
-      duplicateCount: json['DuplicateCount'] ??
-          json['duplicateCount'] ??
-          entries.length,
+      locationLatitude:
+      (json['LocationLatitude'] ?? json['locationLatitude'] ?? 0.0)
+          .toDouble(),
+      locationLongitude:
+      (json['LocationLongitude'] ?? json['locationLongitude'] ?? 0.0)
+          .toDouble(),
+      duplicateCount:
+      json['DuplicateCount'] ?? json['duplicateCount'] ?? entries.length,
       duplicateEntries: entries,
     );
   }
@@ -78,7 +73,13 @@ class DuplicateCluster {
   static DateTime _parseDateTime(dynamic value) {
     if (value == null) return DateTime.now();
     if (value is DateTime) return value;
-    if (value is String) return DateTime.parse(value);
+    if (value is String) {
+      try {
+        return DateTime.parse(value);
+      } catch (_) {
+        return DateTime.now();
+      }
+    }
     return DateTime.now();
   }
 
@@ -97,21 +98,19 @@ class DuplicateCluster {
     };
   }
 
-  // Helper methods for UI
-  int getSelectedCount() {
-    return duplicateEntries.where((e) => e.isSelected).length;
-  }
+  int getSelectedCount() =>
+      duplicateEntries.where((e) => e.isSelected).length;
 
   void toggleSelection(String complaintId) {
-    final index = duplicateEntries.indexWhere((e) => e.complaintId == complaintId);
+    final index =
+    duplicateEntries.indexWhere((e) => e.complaintId == complaintId);
     if (index != -1) {
       duplicateEntries[index].isSelected = !duplicateEntries[index].isSelected;
     }
   }
 
-  List<DuplicateEntry> getSelectedComplaints() {
-    return duplicateEntries.where((e) => e.isSelected).toList();
-  }
+  List<DuplicateEntry> getSelectedComplaints() =>
+      duplicateEntries.where((e) => e.isSelected).toList();
 }
 
 class DuplicateEntry {
@@ -132,12 +131,10 @@ class DuplicateEntry {
   });
 
   factory DuplicateEntry.fromJson(Map<String, dynamic> json) {
-    // Parse complaint inside entry - your backend returns "Complaint"
     Complaint? complaint;
-    if (json['Complaint'] != null && json['Complaint'] is Map) {
-      complaint = Complaint.fromJson(json['Complaint']);
-    } else if (json['complaint'] != null && json['complaint'] is Map) {
-      complaint = Complaint.fromJson(json['complaint']);
+    final rawComplaint = json['Complaint'] ?? json['complaint'];
+    if (rawComplaint != null && rawComplaint is Map<String, dynamic>) {
+      complaint = Complaint.fromJson(rawComplaint);
     }
 
     return DuplicateEntry(
@@ -147,10 +144,11 @@ class DuplicateEntry {
       complaintId: json['ComplaintId']?.toString() ??
           json['complaintId']?.toString() ??
           json['complaint_id']?.toString() ?? '',
-      similarityScore: (json['SimilarityScore'] ??
-          json['similarityScore'] ??
-          0.0).toDouble(),
-      mergedAt: _parseDateTime(json['MergedAt'] ?? json['mergedAt'] ?? json['merged_at']),
+      similarityScore:
+      (json['SimilarityScore'] ?? json['similarityScore'] ?? 0.0)
+          .toDouble(),
+      mergedAt: _parseDateTime(
+          json['MergedAt'] ?? json['mergedAt'] ?? json['merged_at']),
       complaint: complaint,
     );
   }
@@ -158,7 +156,13 @@ class DuplicateEntry {
   static DateTime _parseDateTime(dynamic value) {
     if (value == null) return DateTime.now();
     if (value is DateTime) return value;
-    if (value is String) return DateTime.parse(value);
+    if (value is String) {
+      try {
+        return DateTime.parse(value);
+      } catch (_) {
+        return DateTime.now();
+      }
+    }
     return DateTime.now();
   }
 
@@ -172,8 +176,16 @@ class DuplicateEntry {
     };
   }
 
-  // Helper getters
   String? get complaintNumber => complaint?.complaintNumber;
   String? get complaintTitle => complaint?.title;
   DateTime? get complaintCreatedAt => complaint?.createdAt;
+
+  String? get thumbnailPhotoUrl {
+    if (complaint?.complaintPhotos.isNotEmpty == true) {
+      return complaint!.complaintPhotos.first.photoUrl;
+    }
+    return null;
+  }
+
+  List<ComplaintPhoto> get photos => complaint?.complaintPhotos ?? [];
 }

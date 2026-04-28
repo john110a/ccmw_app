@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart';
 
 class ApiConfig {
   // ===== YOUR COMPUTER'S IP ADDRESS =====
-  static const String _computerIp = '192.168.10.4'; // Your PC LAN IP
+  static const String _computerIp = '192.168.10.5'; // Your PC LAN IP
 
   // ===== BACKEND PORT - CHANGED TO 80 (IIS DEFAULT) =====
   static const int _backendPort = 80; // CHANGED: IIS uses port 80, not 8080

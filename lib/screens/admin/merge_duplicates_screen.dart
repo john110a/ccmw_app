@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../services/duplicate_service.dart';
 import '../../services/AuthService.dart';
 import '../../models/duplicate_cluster_model.dart';
+import '../../models/complaint_photo_model.dart';
 
 class MergeDuplicatesScreen extends StatefulWidget {
   const MergeDuplicatesScreen({super.key});
@@ -170,14 +171,48 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
                     style: TextStyle(fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 8),
-                  Text(
-                    '📌 ${primaryComplaint.complaintNumber ?? 'Unknown'}',
-                    style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.w500),
-                  ),
-                  Text(
-                    primaryComplaint.complaint?.title ?? 'No title',
-                    style: const TextStyle(fontSize: 12),
-                  ),
+                  // Primary complaint image if available
+                  if (_getPhotoUrl(primaryComplaint) != null)
+                    Row(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: Image.network(
+                            _getPhotoUrl(primaryComplaint)!,
+                            width: 40,
+                            height: 40,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const Icon(Icons.image_not_supported, size: 40),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '📌 ${primaryComplaint.complaintNumber ?? 'Unknown'}',
+                                style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.w500),
+                              ),
+                              Text(
+                                primaryComplaint.complaint?.title ?? 'No title',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    )
+                  else
+                    Text(
+                      '📌 ${primaryComplaint.complaintNumber ?? 'Unknown'}',
+                      style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.w500),
+                    ),
+                  if (primaryComplaint.complaint?.title != null && _getPhotoUrl(primaryComplaint) == null)
+                    Text(
+                      primaryComplaint.complaint!.title,
+                      style: const TextStyle(fontSize: 12),
+                    ),
                 ],
               ),
             ),
@@ -372,6 +407,27 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
     }
   }
 
+  // Helper method to get photo URL from various sources
+  String? _getPhotoUrl(DuplicateEntry entry) {
+    // Try from entry.thumbnailPhotoUrl
+    if (entry.thumbnailPhotoUrl != null && entry.thumbnailPhotoUrl!.isNotEmpty) {
+      return entry.thumbnailPhotoUrl;
+    }
+    // Try from complaint.firstPhotoUrl
+    if (entry.complaint?.firstPhotoUrl != null && entry.complaint!.firstPhotoUrl!.isNotEmpty) {
+      return entry.complaint!.firstPhotoUrl;
+    }
+    // Try from complaint.complaintPhotos
+    if (entry.complaint?.complaintPhotos.isNotEmpty == true) {
+      return entry.complaint!.complaintPhotos.first.photoUrl;
+    }
+    // Try from entry.photos
+    if (entry.photos.isNotEmpty) {
+      return entry.photos.first.photoUrl;
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -494,7 +550,6 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
               ],
             ),
           ),
-
           if (_clusters.isEmpty)
             Expanded(
               child: Center(
@@ -571,12 +626,17 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
     final selectedCount = cluster.getSelectedCount();
     final isAllSelected = selectedCount == cluster.duplicateEntries.length;
 
-    // Get category and zone from primary complaint
     final categoryName = cluster.primaryComplaint?.categoryName ?? 'Unknown Category';
     final zoneName = cluster.primaryComplaint?.zoneName ?? 'Unknown Zone';
     final primaryTitle = cluster.primaryComplaint?.title ?? 'No title';
     final primaryCitizen = cluster.primaryComplaint?.citizenName ?? 'Unknown';
     final primaryUpvotes = cluster.primaryComplaint?.upvoteCount ?? 0;
+
+    // Get primary complaint photo
+    String? primaryPhotoUrl;
+    if (cluster.duplicateEntries.isNotEmpty) {
+      primaryPhotoUrl = _getPhotoUrl(cluster.duplicateEntries.first);
+    }
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
@@ -628,31 +688,22 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    // Category
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: Text(
-                        categoryName,
-                        style: const TextStyle(fontSize: 12),
-                      ),
+                      child: Text(categoryName, style: const TextStyle(fontSize: 12)),
                     ),
-                    // Zone
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: Text(
-                        zoneName,
-                        style: const TextStyle(fontSize: 12),
-                      ),
+                      child: Text(zoneName, style: const TextStyle(fontSize: 12)),
                     ),
-                    // Location
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -666,7 +717,6 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
                     ),
                   ],
                 ),
-                // Primary complaint info
                 const SizedBox(height: 12),
                 Container(
                   padding: const EdgeInsets.all(8),
@@ -677,17 +727,50 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.star, size: 14, color: Colors.amber),
+                      if (primaryPhotoUrl != null)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: Image.network(
+                            primaryPhotoUrl,
+                            width: 40,
+                            height: 40,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              width: 40,
+                              height: 40,
+                              color: Colors.grey[200],
+                              child: const Icon(Icons.image_not_supported, size: 24, color: Colors.grey),
+                            ),
+                          ),
+                        )
+                      else
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: Colors.grey[200],
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Icon(Icons.image, size: 24, color: Colors.grey),
+                        ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              'Primary: $primaryTitle',
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                            Row(
+                              children: [
+                                const Icon(Icons.star, size: 14, color: Colors.amber),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Primary: $primaryTitle',
+                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
                             ),
                             Text(
                               'Submitted by: $primaryCitizen',
@@ -736,10 +819,7 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
                     const SizedBox(width: 8),
                     Text(
                       'Select All ($selectedCount/${cluster.duplicateEntries.length})',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: _isMerging ? Colors.grey : Colors.black,
-                      ),
+                      style: TextStyle(fontSize: 14, color: _isMerging ? Colors.grey : Colors.black),
                     ),
                     const Spacer(),
                     Text(
@@ -755,11 +835,7 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
                     onPressed: _isMerging ? null : () => _mergeCluster(cluster),
                     icon: const Icon(Icons.call_merge),
                     label: _isMerging
-                        ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
+                        ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
                         : const Text('Merge Selected'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blue,
@@ -779,6 +855,7 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
 
   Widget _buildComplaintItem(DuplicateEntry entry, String clusterId) {
     final complaint = entry.complaint;
+    final photoUrl = _getPhotoUrl(entry);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -791,6 +868,54 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
               _toggleComplaintSelection(clusterId, entry.complaintId);
             },
           ),
+          const SizedBox(width: 12),
+          // Complaint thumbnail image with loading indicator
+          if (photoUrl != null && photoUrl.isNotEmpty)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                photoUrl,
+                width: 60,
+                height: 60,
+                fit: BoxFit.cover,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Container(
+                    width: 60,
+                    height: 60,
+                    color: Colors.grey[200],
+                    child: Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          value: loadingProgress.expectedTotalBytes != null
+                              ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                              : null,
+                          strokeWidth: 2,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+                errorBuilder: (_, __, ___) => Container(
+                  width: 60,
+                  height: 60,
+                  color: Colors.grey[200],
+                  child: const Icon(Icons.broken_image, size: 30, color: Colors.grey),
+                ),
+              ),
+            )
+          else
+            Container(
+              width: 60,
+              height: 60,
+              decoration: BoxDecoration(
+                color: Colors.grey[200],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.image, size: 30, color: Colors.grey),
+            ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -834,7 +959,6 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
                   spacing: 12,
                   runSpacing: 4,
                   children: [
-                    // Citizen
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -846,7 +970,6 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
                         ),
                       ],
                     ),
-                    // Date
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -858,7 +981,6 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
                         ),
                       ],
                     ),
-                    // Similarity
                     if (entry.similarityScore > 0)
                       Row(
                         mainAxisSize: MainAxisSize.min,
@@ -874,6 +996,25 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
                             ),
                           ),
                         ],
+                      ),
+                    if (entry.photos.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.blue[50],
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.photo_camera, size: 10, color: Colors.blue),
+                            const SizedBox(width: 2),
+                            Text(
+                              '${entry.photos.length}',
+                              style: TextStyle(fontSize: 10, color: Colors.blue[700]),
+                            ),
+                          ],
+                        ),
                       ),
                   ],
                 ),

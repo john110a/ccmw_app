@@ -1,6 +1,8 @@
+// lib/models/complaint_model.dart
 import 'package:flutter/animation.dart' show Color;
 import 'package:flutter/material.dart' show Colors;
 import 'user_model.dart';
+import 'complaint_photo_model.dart';
 
 enum ComplaintStatus {
   submitted,
@@ -28,7 +30,7 @@ class Complaint {
   final String zoneId;
   final String title;
   final String description;
-  final String? status; // Legacy field
+  final String? status;
   final String priority;
   final int escalationLevel;
   final DateTime createdAt;
@@ -54,13 +56,16 @@ class Complaint {
   final int submissionStatus;
   final int currentStatus;
 
-  // ✅ NEW: Display fields from nested objects
+  // Display fields from nested objects
   final String? categoryName;
   final String? zoneName;
   final String? departmentName;
   final String? citizenName;
   final String? assignedToName;
   final User? citizen;
+
+  // Complaint photos
+  final List<ComplaintPhoto> complaintPhotos;
 
   Complaint({
     required this.complaintId,
@@ -101,6 +106,7 @@ class Complaint {
     this.citizenName,
     this.assignedToName,
     this.citizen,
+    this.complaintPhotos = const [],
   });
 
   factory Complaint.fromJson(Map<String, dynamic> json) {
@@ -108,7 +114,6 @@ class Complaint {
     // Extract nested object data
     // =====================================================
 
-    // Extract Category name from nested object
     String? extractedCategoryName;
     if (json['Category'] != null && json['Category'] is Map) {
       extractedCategoryName = json['Category']['CategoryName']?.toString() ??
@@ -119,7 +124,6 @@ class Complaint {
       extractedCategoryName = json['CategoryName'].toString();
     }
 
-    // Extract Zone name from nested object
     String? extractedZoneName;
     if (json['Zone'] != null && json['Zone'] is Map) {
       extractedZoneName = json['Zone']['ZoneName']?.toString() ??
@@ -130,29 +134,29 @@ class Complaint {
       extractedZoneName = json['ZoneName'].toString();
     }
 
-    // Extract Department name from nested object
     String? extractedDepartmentName;
     if (json['Department'] != null && json['Department'] is Map) {
-      extractedDepartmentName = json['Department']['DepartmentName']?.toString() ??
-          json['Department']['departmentName']?.toString();
+      extractedDepartmentName =
+          json['Department']['DepartmentName']?.toString() ??
+              json['Department']['departmentName']?.toString();
     } else if (json['departmentName'] != null) {
       extractedDepartmentName = json['departmentName'].toString();
     } else if (json['DepartmentName'] != null) {
       extractedDepartmentName = json['DepartmentName'].toString();
     }
 
-    // Extract Citizen name from nested object
     String? extractedCitizenName;
     if (json['Citizen'] != null && json['Citizen'] is Map) {
       extractedCitizenName = json['Citizen']['FullName']?.toString() ??
           json['Citizen']['fullName']?.toString();
     } else if (json['citizenName'] != null) {
       extractedCitizenName = json['citizenName'].toString();
+    } else if (json['CitizenName'] != null) {
+      extractedCitizenName = json['CitizenName'].toString();
     } else if (json['FullName'] != null) {
       extractedCitizenName = json['FullName'].toString();
     }
 
-    // Extract Assigned To name from nested object (if exists)
     String? extractedAssignedToName;
     if (json['AssignedTo'] != null && json['AssignedTo'] is Map) {
       extractedAssignedToName = json['AssignedTo']['FullName']?.toString() ??
@@ -161,56 +165,120 @@ class Complaint {
       extractedAssignedToName = json['assignedToName'].toString();
     }
 
-    return Complaint(
+    // =====================================================
+    // ✅ FIXED: Parse photos — handles objects, plain strings,
+    // and all key variants the backend may send
+    // =====================================================
+    List<ComplaintPhoto> photos = _parsePhotos(json);
 
-      // Basic fields
-      complaintId:json['ComplaintId']?.toString() ?? json['complaint_id']?.toString() ?? json['complaintId']?.toString() ?? '',
-      citizenId: json['citizen_id']?.toString() ?? json['citizenId']?.toString() ?? '',
-      categoryId: json['category_id']?.toString() ?? json['categoryId']?.toString() ?? '',
-      departmentId: json['department_id']?.toString() ?? json['departmentId']?.toString() ?? '',
+    return Complaint(
+      complaintId: json['ComplaintId']?.toString() ??
+          json['complaint_id']?.toString() ??
+          json['complaintId']?.toString() ?? '',
+      citizenId: json['citizen_id']?.toString() ??
+          json['citizenId']?.toString() ?? '',
+      categoryId: json['category_id']?.toString() ??
+          json['categoryId']?.toString() ?? '',
+      departmentId: json['department_id']?.toString() ??
+          json['departmentId']?.toString() ?? '',
       zoneId: json['zone_id']?.toString() ?? json['zoneId']?.toString() ?? '',
       title: json['title'] ?? json['Title'] ?? '',
       description: json['description'] ?? json['Description'] ?? '',
       status: json['status'] ?? json['Status'],
       priority: json['priority'] ?? json['Priority'] ?? 'Medium',
       escalationLevel: json['escalation_level'] ?? json['escalationLevel'] ?? 0,
-      createdAt: _parseDateTime(json['created_at'] ?? json['createdAt']),
-      resolvedAt: json['resolved_at'] != null ? _parseDateTime(json['resolved_at']) : null,
-      locationAddress: json['location_address'] ?? json['locationAddress'] ?? '',
-      locationLatitude: _parseDouble(json['location_latitude'] ?? json['locationLatitude']),
-      locationLongitude: _parseDouble(json['location_longitude'] ?? json['locationLongitude']),
-      locationLandmark: json['location_landmark'] ?? json['locationLandmark'],
-      complaintNumber: json['ComplaintNumber'] ?? json['complaintNumber'],
-      approvedById: json['ApprovedById']?.toString() ?? json['approvedById']?.toString(),
-      rejectionReason: json['RejectionReason'] ?? json['rejectionReason'],
-      statusUpdatedAt: json['StatusUpdatedAt'] != null ? _parseDateTime(json['StatusUpdatedAt']) : null,
+      createdAt: _parseDateTime(json['created_at'] ?? json['createdAt'] ?? json['CreatedAt']),
+      resolvedAt: json['resolved_at'] != null
+          ? _parseDateTime(json['resolved_at'])
+          : null,
+      locationAddress:
+      json['location_address'] ?? json['locationAddress'] ?? json['LocationAddress'] ?? '',
+      locationLatitude: _parseDouble(
+          json['location_latitude'] ?? json['locationLatitude'] ?? json['LocationLatitude']),
+      locationLongitude: _parseDouble(
+          json['location_longitude'] ?? json['locationLongitude'] ?? json['LocationLongitude']),
+      locationLandmark:
+      json['location_landmark'] ?? json['locationLandmark'],
+      complaintNumber:
+      json['ComplaintNumber'] ?? json['complaintNumber'],
+      approvedById: json['ApprovedById']?.toString() ??
+          json['approvedById']?.toString(),
+      rejectionReason:
+      json['RejectionReason'] ?? json['rejectionReason'],
+      statusUpdatedAt: json['StatusUpdatedAt'] != null
+          ? _parseDateTime(json['StatusUpdatedAt'])
+          : null,
       upvoteCount: json['UpvoteCount'] ?? json['upvoteCount'] ?? 0,
       viewCount: json['ViewCount'] ?? json['viewCount'] ?? 0,
       isDuplicate: json['IsDuplicate'] ?? json['isDuplicate'] ?? false,
-      mergedIntoComplaintId: json['MergedIntoComplaintId']?.toString() ?? json['mergedIntoComplaintId']?.toString(),
-      updatedAt: json['UpdatedAt'] != null ? _parseDateTime(json['UpdatedAt']) : null,
-      closedAt: json['ClosedAt'] != null ? _parseDateTime(json['ClosedAt']) : null,
+      mergedIntoComplaintId:
+      json['MergedIntoComplaintId']?.toString() ??
+          json['mergedIntoComplaintId']?.toString(),
+      updatedAt: json['UpdatedAt'] != null
+          ? _parseDateTime(json['UpdatedAt'])
+          : null,
+      closedAt: json['ClosedAt'] != null
+          ? _parseDateTime(json['ClosedAt'])
+          : null,
       expectedResolutionDate: json['ExpectedResolutionDate'] != null
           ? _parseDateTime(json['ExpectedResolutionDate'])
           : null,
       isOverdue: json['IsOverdue'] ?? json['isOverdue'] ?? false,
-      assignedToId: json['assigned_to_id']?.toString() ?? json['assignedToId']?.toString(),
-      assignedAt: json['assigned_at'] != null ? _parseDateTime(json['assigned_at']) : null,
-      submissionStatus: _parseSubmissionStatus(json['SubmissionStatus'] ?? json['submissionStatus']),
-      currentStatus: _parseStatus(json['CurrentStatus'] ?? json['currentStatus']),
-
-      // ✅ NEW: Set extracted names
+      assignedToId: json['assigned_to_id']?.toString() ??
+          json['assignedToId']?.toString(),
+      assignedAt: json['assigned_at'] != null
+          ? _parseDateTime(json['assigned_at'])
+          : null,
+      submissionStatus: _parseSubmissionStatus(
+          json['SubmissionStatus'] ?? json['submissionStatus']),
+      currentStatus:
+      _parseStatus(json['CurrentStatus'] ?? json['currentStatus']),
       categoryName: extractedCategoryName,
       zoneName: extractedZoneName,
       departmentName: extractedDepartmentName,
       citizenName: extractedCitizenName,
       assignedToName: extractedAssignedToName,
-
-      // Citizen object if available
       citizen: json['citizen'] != null
           ? User.fromJson(json['citizen'])
           : (json['user'] != null ? User.fromJson(json['user']) : null),
+      complaintPhotos: photos,
     );
+  }
+
+  // =====================================================
+  // ✅ FIXED: Robust photo parser — handles every format
+  // the backend might return:
+  //   - List of objects with PhotoUrl key
+  //   - List of plain URL strings
+  //   - Keys: ComplaintPhotos, complaintPhotos, Photos, photos
+  // =====================================================
+  static List<ComplaintPhoto> _parsePhotos(Map<String, dynamic> json) {
+    // All possible keys the backend might use
+    final List<dynamic>? rawList =
+        (json['ComplaintPhotos'] as List?)  ??
+            (json['complaintPhotos'] as List?)  ??
+            (json['Photos'] as List?)           ??
+            (json['photos'] as List?)           ??
+            (json['complaint_photos'] as List?);
+
+    if (rawList == null || rawList.isEmpty) return [];
+
+    return rawList.map((item) {
+      // If item is already a Map (object), parse normally
+      if (item is Map<String, dynamic>) {
+        return ComplaintPhoto.fromJson(item);
+      }
+      // If item is a plain URL string (backend sends Photos as List<string>)
+      if (item is String && item.isNotEmpty) {
+        return ComplaintPhoto(
+          photoId: '',
+          complaintId: '',
+          photoUrl: item,
+          uploadedAt: DateTime.now(),
+        );
+      }
+      return null;
+    }).whereType<ComplaintPhoto>().toList();
   }
 
   static int _parseStatus(dynamic value) {
@@ -219,8 +287,7 @@ class Complaint {
     if (value is String) {
       final parsedInt = int.tryParse(value);
       if (parsedInt != null) return parsedInt;
-
-      switch(value.toLowerCase()) {
+      switch (value.toLowerCase()) {
         case 'submitted': return 0;
         case 'underreview':
         case 'under review': return 1;
@@ -245,8 +312,7 @@ class Complaint {
     if (value is String) {
       final parsedInt = int.tryParse(value);
       if (parsedInt != null) return parsedInt;
-
-      switch(value.toLowerCase()) {
+      switch (value.toLowerCase()) {
         case 'pendingapproval':
         case 'pending approval': return 0;
         case 'approved': return 1;
@@ -292,6 +358,7 @@ class Complaint {
       'SubmissionStatus': submissionStatus,
       'CurrentStatus': currentStatus,
       if (citizen != null) 'citizen': citizen!.toJson(),
+      'ComplaintPhotos': complaintPhotos.map((p) => p.toJson()).toList(),
     };
   }
 
@@ -327,10 +394,23 @@ class Complaint {
     }
   }
 
+  String? get firstPhotoUrl {
+    if (complaintPhotos.isNotEmpty) return complaintPhotos.first.photoUrl;
+    return null;
+  }
+
+  bool get hasPhotos => complaintPhotos.isNotEmpty;
+
   static DateTime _parseDateTime(dynamic value) {
     if (value == null) return DateTime.now();
     if (value is DateTime) return value;
-    if (value is String) return DateTime.parse(value);
+    if (value is String) {
+      try {
+        return DateTime.parse(value);
+      } catch (_) {
+        return DateTime.now();
+      }
+    }
     return DateTime.now();
   }
 
