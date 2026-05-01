@@ -180,12 +180,22 @@ class DuplicateEntry {
   String? get complaintTitle => complaint?.title;
   DateTime? get complaintCreatedAt => complaint?.createdAt;
 
+  // ===== FIXED: Use fullPhotoUrl to get complete URL with base URL =====
   String? get thumbnailPhotoUrl {
     if (complaint?.complaintPhotos.isNotEmpty == true) {
-      return complaint!.complaintPhotos.first.photoUrl;
+      return complaint!.complaintPhotos.first.fullPhotoUrl;
     }
     return null;
   }
 
+  // ===== ADDED: Get all photo URLs as full URLs =====
+  List<String> get allPhotoUrls {
+    if (complaint?.complaintPhotos.isNotEmpty == true) {
+      return complaint!.complaintPhotos.map((p) => p.fullPhotoUrl).toList();
+    }
+    return [];
+  }
+
+  // Get all complaint photos
   List<ComplaintPhoto> get photos => complaint?.complaintPhotos ?? [];
 }

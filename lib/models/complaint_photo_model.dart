@@ -75,27 +75,28 @@ class ComplaintPhoto {
   }
 
   // =====================================================
-  // IMAGE URL HELPERS
+  // IMAGE URL HELPERS - FIXED VERSION
   // =====================================================
 
-  /// Get the server base URL (without /api)
+  /// Get the server base URL (without trailing slash)
   static String get _serverBaseUrl {
     String baseUrl = ApiConfig.baseUrl;
-    // Remove /api if present at the end
+    // Remove /api if present
     if (baseUrl.endsWith('/api')) {
       baseUrl = baseUrl.substring(0, baseUrl.length - 4);
     }
-    if (baseUrl.endsWith('/')) {
+    // Remove trailing slash
+    while (baseUrl.endsWith('/')) {
       baseUrl = baseUrl.substring(0, baseUrl.length - 1);
     }
     return baseUrl;
   }
 
-  /// Convert stored image path to full URL
+  /// Convert stored image path to full URL - FIXED: Proper URL construction
   static String _getFullImageUrl(String path) {
     if (path.isEmpty) return '';
 
-    // If already a full URL (starts with http:// or https://)
+    // If already a full URL
     if (path.startsWith('http://') || path.startsWith('https://')) {
       return path;
     }
@@ -106,21 +107,13 @@ class ComplaintPhoto {
       cleanPath = cleanPath.substring(1);
     }
 
-    // If it starts with CCMW or api, adjust accordingly
-    if (cleanPath.startsWith('CCMW/')) {
-      return '${_serverBaseUrl}/$cleanPath';
-    }
-
-    // If it starts with uploads (common pattern)
-    if (cleanPath.startsWith('uploads/')) {
-      return '${_serverBaseUrl}/CCMW/$cleanPath';
-    }
-
-    // Default: just append to server URL
-    return '${_serverBaseUrl}/CCMW/$cleanPath';
+    // The path from backend is like: "Uploads/Complaints/filename.jpg"
+    // or "uploads/complaints/filename.jpg"
+    // So just prepend the server base URL directly
+    return '${_serverBaseUrl}/$cleanPath';
   }
 
-  /// Get the full URL for the photo (with base URL prepended if needed)
+  /// Get the full URL for the photo
   String get fullPhotoUrl {
     if (photoUrl.isEmpty) return '';
     return _getFullImageUrl(photoUrl);

@@ -165,10 +165,7 @@ class Complaint {
       extractedAssignedToName = json['assignedToName'].toString();
     }
 
-    // =====================================================
-    // ✅ FIXED: Parse photos — handles objects, plain strings,
-    // and all key variants the backend may send
-    // =====================================================
+    // Parse photos
     List<ComplaintPhoto> photos = _parsePhotos(json);
 
     return Complaint(
@@ -246,11 +243,7 @@ class Complaint {
   }
 
   // =====================================================
-  // ✅ FIXED: Robust photo parser — handles every format
-  // the backend might return:
-  //   - List of objects with PhotoUrl key
-  //   - List of plain URL strings
-  //   - Keys: ComplaintPhotos, complaintPhotos, Photos, photos
+  // Robust photo parser — handles every format
   // =====================================================
   static List<ComplaintPhoto> _parsePhotos(Map<String, dynamic> json) {
     // All possible keys the backend might use
@@ -268,7 +261,7 @@ class Complaint {
       if (item is Map<String, dynamic>) {
         return ComplaintPhoto.fromJson(item);
       }
-      // If item is a plain URL string (backend sends Photos as List<string>)
+      // If item is a plain URL string
       if (item is String && item.isNotEmpty) {
         return ComplaintPhoto(
           photoId: '',
@@ -394,9 +387,17 @@ class Complaint {
     }
   }
 
+  // ===== FIXED: Use fullPhotoUrl instead of raw photoUrl =====
   String? get firstPhotoUrl {
-    if (complaintPhotos.isNotEmpty) return complaintPhotos.first.photoUrl;
+    if (complaintPhotos.isNotEmpty) {
+      return complaintPhotos.first.fullPhotoUrl;
+    }
     return null;
+  }
+
+  // ===== ADDED: Get all photo URLs as full URLs =====
+  List<String> getAllPhotoUrls() {
+    return complaintPhotos.map((p) => p.fullPhotoUrl).toList();
   }
 
   bool get hasPhotos => complaintPhotos.isNotEmpty;

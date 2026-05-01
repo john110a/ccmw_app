@@ -526,7 +526,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ========== ERROR SCREEN (YOUR ORIGINAL) ==========
+  // ========== ERROR SCREEN (YOUR ORIGINAL) ==========//
   Widget _buildErrorScreen() {
     return Container(
       color: const Color(0xFFF5F7FA),
