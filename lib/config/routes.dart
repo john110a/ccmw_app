@@ -12,6 +12,7 @@ import '../screens/admin/complaint_approval_screen.dart';
 import '../screens/admin/department_management_screen.dart';
 import '../screens/admin/detect_duplicates_screen.dart';
 import '../screens/admin/duplicate_notifications_screen.dart';
+import '../screens/admin/zones_map_screen.dart';
 import '../screens/splash_screen.dart';
 import '../screens/onboarding_screen.dart';
 import '../screens/auth/login_screen.dart';
@@ -116,6 +117,7 @@ class Routes {
   static const String duplicateNotifications = '/duplicate-notifications';
   static const String adminComplaints = '/admin-complaints';
   static const String complaintApproval = '/complaint-approval';
+  static const String ZonesMap = '/zones-map';
 
   // Contractor route names
   static const String contractorLogin = '/contractor-login';
@@ -195,6 +197,8 @@ class Routes {
       adminComplaints: (context) => const AdminComplaintsScreen(),
       complaintApproval: (context) => const ComplaintApprovalScreen(),
       departmentManagement: (context) => const DepartmentManagementScreen(),
+      // In your routes.dart file
+      ZonesMap: (context) => const ZonesMapScreen(),
       // Add this line in the admin routes section of allRoutes
       compareDuplicates: (context) {
         final args = ModalRoute.of(context)!.settings.arguments as Map<String, String>;

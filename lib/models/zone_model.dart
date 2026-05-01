@@ -1,3 +1,4 @@
+// lib/models/zone_model.dart
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'dart:convert';
@@ -10,6 +11,20 @@ extension PolygonParser on dynamic {
     if (this == null) return [];
 
     try {
+      // Handle String (JSON string) - DO THIS FIRST
+      if (this is String) {
+        final str = this as String;
+        if (str.isNotEmpty && str != 'null') {
+          try {
+            final decoded = jsonDecode(str);
+            return decoded.toLatLngList();
+          } catch (e) {
+            print('⚠️ Error parsing JSON string: $e');
+          }
+        }
+        return [];
+      }
+
       // Handle direct List
       if (this is List) {
         return _parseList(this as List);
@@ -36,19 +51,6 @@ extension PolygonParser on dynamic {
         }
         if (map['boundaryCoordinates'] != null) {
           return map['boundaryCoordinates'].toLatLngList();
-        }
-      }
-
-      // Handle String (JSON string)
-      if (this is String) {
-        final str = this as String;
-        if (str.isNotEmpty) {
-          try {
-            final decoded = jsonDecode(str);
-            return decoded.toLatLngList();
-          } catch (e) {
-            print('⚠️ Error parsing JSON string: $e');
-          }
         }
       }
 
@@ -137,6 +139,17 @@ class Zone {
   });
 
   factory Zone.fromJson(Map<String, dynamic> json) {
+    // Get boundary polygon - try multiple key names
+    dynamic boundaryPolygonData = json['BoundaryPolygon'] ??
+        json['boundaryPolygon'] ??
+        json['boundary_polygon'];
+
+    // If it's a string that looks like a JSON object, keep it as string
+    // The parser will handle it
+    if (boundaryPolygonData is String && boundaryPolygonData.isNotEmpty) {
+      // Keep as string - will be parsed later
+    }
+
     return Zone(
       zoneId: _getStringValue(json, ['ZoneId', 'zoneId', 'zone_id']) ?? '',
       zoneNumber: _getIntValue(json, ['ZoneNumber', 'zoneNumber', 'zone_number']) ?? 0,
@@ -152,7 +165,7 @@ class Zone {
       performanceRating: _getStringValue(json, ['PerformanceRating', 'performanceRating', 'performance_rating']),
       createdAt: _getDateTimeValue(json, ['CreatedAt', 'createdAt', 'created_at']) ?? DateTime.now(),
       updatedAt: _getDateTimeValue(json, ['UpdatedAt', 'updatedAt', 'updated_at']),
-      boundaryPolygon: json['BoundaryPolygon'] ?? json['boundaryPolygon'] ?? json['boundary_polygon'],
+      boundaryPolygon: boundaryPolygonData,
       centerLatitude: _getDoubleValue(json, ['CenterLatitude', 'centerLatitude', 'center_latitude']),
       centerLongitude: _getDoubleValue(json, ['CenterLongitude', 'centerLongitude', 'center_longitude']),
       colorCode: _getStringValue(json, ['ColorCode', 'colorCode', 'color_code']),
@@ -186,6 +199,63 @@ class Zone {
   // POLYGON METHODS
   // =====================================================
 
+  /// Directly parse polygon from JSON string (fallback method)
+  List<LatLng> _parsePolygonDirectly() {
+    if (boundaryPolygon == null) return [];
+
+    try {
+      String jsonString;
+      if (boundaryPolygon is String) {
+        jsonString = boundaryPolygon as String;
+        if (jsonString.isEmpty || jsonString == 'null') return [];
+      } else {
+        jsonString = jsonEncode(boundaryPolygon);
+      }
+
+      final decoded = jsonDecode(jsonString);
+
+      // Handle GeoJSON Polygon format
+      if (decoded is Map) {
+        // Check for coordinates array
+        if (decoded.containsKey('coordinates')) {
+          final coordinates = decoded['coordinates'];
+          if (coordinates is List && coordinates.isNotEmpty) {
+            final ring = coordinates.first as List;
+            return ring.map((point) {
+              if (point is List && point.length >= 2) {
+                // GeoJSON format: [longitude, latitude]
+                return LatLng(point[1].toDouble(), point[0].toDouble());
+              }
+              if (point is Map) {
+                final lat = (point['lat'] ?? point['latitude'] ?? 0.0).toDouble();
+                final lng = (point['lng'] ?? point['longitude'] ?? 0.0).toDouble();
+                return LatLng(lat, lng);
+              }
+              return const LatLng(0, 0);
+            }).toList();
+          }
+        }
+        // Check for direct polygon key
+        if (decoded.containsKey('polygon')) {
+          return decoded['polygon'].toLatLngList();
+        }
+        if (decoded.containsKey('boundaryPolygon')) {
+          return decoded['boundaryPolygon'].toLatLngList();
+        }
+      }
+
+      // Handle direct list of coordinates
+      if (decoded is List) {
+        return decoded.toLatLngList();
+      }
+
+      return [];
+    } catch (e) {
+      print('❌ Direct parse error for zone $zoneName: $e');
+      return [];
+    }
+  }
+
   /// Get polygon points as List<LatLng>
   List<LatLng> getPolygonPoints() {
     // Return cached points if available
@@ -193,8 +263,33 @@ class Zone {
       return _cachedPolygonPoints!;
     }
 
-    // Use the extension to parse polygon
-    final points = boundaryPolygon.toLatLngList();
+    List<LatLng> points = [];
+
+    // Try direct parsing first (most reliable)
+    points = _parsePolygonDirectly();
+
+    // If direct parsing failed, try the extension method
+    if (points.isEmpty) {
+      try {
+        points = boundaryPolygon.toLatLngList();
+      } catch (e) {
+        print('❌ Extension parse error for zone $zoneName: $e');
+      }
+    }
+
+    // Validate points (need at least 3 for a polygon)
+    if (points.length < 3) {
+      print('⚠️ Zone $zoneName has insufficient points: ${points.length}');
+      points = [];
+    } else {
+      // Ensure polygon is closed (first and last point same)
+      final first = points.first;
+      final last = points.last;
+      if (first.latitude != last.latitude || first.longitude != last.longitude) {
+        points.add(first);
+        print('📝 Closed polygon for $zoneName (added closing point)');
+      }
+    }
 
     _cachedPolygonPoints = points;
     return points;
@@ -202,11 +297,15 @@ class Zone {
 
   /// Check if zone has a valid polygon
   bool get hasPolygon {
-    // FIXED: Don't call getPolygonPoints here to avoid recursion
-    // Just check if boundaryPolygon exists and has content
     if (boundaryPolygon == null) return false;
 
-    // Quick check without full parsing
+    // Quick string check
+    if (boundaryPolygon is String) {
+      final str = boundaryPolygon as String;
+      if (str.isEmpty || str == 'null' || str.length < 20) return false;
+      if (!str.contains('coordinates') && !str.contains('polygon')) return false;
+    }
+
     try {
       final points = getPolygonPoints();
       return points.isNotEmpty && points.length >= 3;

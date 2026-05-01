@@ -167,6 +167,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
+  // ===== ADDED: Navigate to Zones Map =====
+  void _navigateToZonesMap() {
+    Navigator.pushNamed(context, '/zones-map');
+  }
+
   Widget _buildStatItem(String value, String label, IconData icon, Color color) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -286,6 +291,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           style: TextStyle(color: Colors.grey[900], fontWeight: FontWeight.w600, fontSize: 18),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.map, color: Colors.teal),
+            onPressed: _navigateToZonesMap,
+            tooltip: 'View Zones Map',
+          ),
           IconButton(
             icon: const Icon(Icons.notifications, color: Colors.grey),
             onPressed: () => Navigator.pushNamed(context, '/notifications'),
@@ -448,8 +458,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         // Resolution & Verification
                         _buildCompactActionCard(Icons.verified, 'Verify\nResolutions', '/resolution-detection', Colors.green),
 
+                        // ===== ADDED: Zones Map Button =====
+                        _buildCompactActionCard(Icons.map, 'Zones\nMap', '/zones-map', Colors.teal),
+
                         // Zone Management
-                        _buildCompactActionCard(Icons.location_city, 'Zones', '/zone-management', Colors.teal),
+                        _buildCompactActionCard(Icons.location_city, 'Zone\nManagement', '/zone-management', Colors.teal),
 
                         // Escalation
                         _buildCompactActionCard(Icons.timeline, 'Escalate', '/escalation-workflow', Colors.red),
@@ -654,6 +667,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
             _buildNavItem(Icons.dashboard, 'Home', Colors.purple, () {}),
+            _buildNavItem(Icons.map, 'Map', Colors.teal, _navigateToZonesMap), // ===== ADDED =====
             _buildNavItem(Icons.people, 'Users', Colors.grey, () {
               Navigator.pushNamed(context, '/user-management');
             }),

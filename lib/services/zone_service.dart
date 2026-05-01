@@ -165,11 +165,14 @@ class ZoneService {
   // CRUD OPERATIONS
   // =====================================================
 
-  /// Get all zones
+  /// Get all zones - FIXED: Using correct endpoint /zones (not /zones/all)
   Future<List<Zone>> getAllZones() async {
     try {
+      final url = '${ApiConfig.baseUrl}/zones';
+      print('📡 GET zones from: $url');
+
       final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/zones'),
+        Uri.parse(url),
         headers: ApiConfig.getHeaders(),
       ).timeout(const Duration(seconds: 10));
 
@@ -177,26 +180,57 @@ class ZoneService {
 
       if (response.statusCode == 200) {
         final dynamic data = json.decode(response.body);
+        print('📦 Response type: ${data.runtimeType}');
 
-        // Handle different response formats
+        // Your ZoneController returns a direct list of zones
         List<dynamic> zonesList = [];
         if (data is List) {
           zonesList = data;
-        } else if (data is Map && data['data'] != null) {
+          print('✅ Found ${zonesList.length} zones (direct list)');
+        } else if (data is Map && data['data'] != null && data['data'] is List) {
           zonesList = data['data'] as List;
-        } else if (data is Map && data['zones'] != null) {
+          print('✅ Found ${zonesList.length} zones (nested in data)');
+        } else if (data is Map && data['zones'] != null && data['zones'] is List) {
           zonesList = data['zones'] as List;
-        } else if (data is Map && data['items'] != null) {
+          print('✅ Found ${zonesList.length} zones (nested in zones)');
+        } else if (data is Map && data['items'] != null && data['items'] is List) {
           zonesList = data['items'] as List;
+          print('✅ Found ${zonesList.length} zones (nested in items)');
+        } else {
+          print('⚠️ Unexpected response format: ${data.runtimeType}');
+          if (data is Map) {
+            print('📦 Response keys: ${data.keys}');
+          }
+          return [];
         }
 
-        print('✅ Found ${zonesList.length} zones');
-        return zonesList.map((json) => Zone.fromJson(json)).toList();
+        if (zonesList.isEmpty) {
+          print('ℹ️ No zones found');
+          return [];
+        }
+
+        // Parse each zone
+        final zones = <Zone>[];
+        for (var json in zonesList) {
+          try {
+            final zone = Zone.fromJson(json);
+            zones.add(zone);
+            print('📍 Parsed zone: ${zone.zoneName} (${zone.zoneId}) - Has polygon: ${zone.hasPolygon}');
+          } catch (e) {
+            print('❌ Error parsing zone: $e');
+            print('📦 Zone data: $json');
+          }
+        }
+
+        print('✅ Successfully parsed ${zones.length} zones');
+        return zones;
       } else if (response.statusCode == 404) {
-        print('ℹ️ No zones found');
+        print('ℹ️ Zones endpoint not found (404)');
         return [];
       } else {
-        throw Exception('Failed to load zones: ${response.statusCode}');
+        print('❌ Failed to load zones: ${response.statusCode}');
+        print('📦 Response body: ${response.body}');
+        return [];
       }
     } catch (e) {
       print('❌ Error loading zones: $e');
@@ -218,8 +252,11 @@ class ZoneService {
   /// Get zone by ID
   Future<Zone?> getZoneById(String zoneId) async {
     try {
+      final url = '${ApiConfig.baseUrl}/zones/$zoneId';
+      print('📡 GET zone from: $url');
+
       final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/zones/$zoneId'),
+        Uri.parse(url),
         headers: ApiConfig.getHeaders(),
       ).timeout(const Duration(seconds: 10));
 
@@ -239,7 +276,7 @@ class ZoneService {
     }
   }
 
-  /// Create zone with polygon - UPDATED to include department assignments
+  /// Create zone with polygon - FIXED: Using correct endpoint /zones (not /zones/create)
   Future<Map<String, dynamic>> createZone({
     required String zoneName,
     required int zoneNumber,
@@ -268,15 +305,13 @@ class ZoneService {
       // Convert polygon to GeoJSON format
       final geoJson = toGeoJson(points);
 
-      // ================================================
-      // FIXED: Convert department assignments to PascalCase
-      // ================================================
+      // Convert department assignments to PascalCase to match C# model
       final departmentAssignmentsList = departmentAssignments?.map((dept) {
         return {
-          'DepartmentId': dept['departmentId'],      // PascalCase
-          'DepartmentName': dept['departmentName'],  // PascalCase
-          'StaffCount': dept['staffCount'] ?? 0,     // PascalCase
-          'ColorCode': dept['colorCode'] ?? colorCode, // PascalCase
+          'DepartmentId': dept['departmentId'],
+          'DepartmentName': dept['departmentName'],
+          'StaffCount': dept['staffCount'] ?? 0,
+          'ColorCode': dept['colorCode'] ?? colorCode,
         };
       }).toList();
 
@@ -294,24 +329,22 @@ class ZoneService {
         'ColorCode': colorCode,
         'TotalAreaSqKm': calculatedArea,
         'IsActive': true,
-        'DepartmentAssignments': departmentAssignmentsList ?? [],  // ← CRITICAL: Send department assignments
+        'DepartmentAssignments': departmentAssignmentsList ?? [],
       };
 
       print('📡 Creating zone: $zoneName');
       print('📡 Points: ${points.length} boundary points');
       print('📡 Area: ${calculatedArea.toStringAsFixed(2)} km²');
-      print('📡 Center: ${center.latitude}, ${center.longitude}');
       print('📡 Department assignments: ${departmentAssignmentsList?.length ?? 0}');
-      print('📡 Request body: ${json.encode(zoneData)}');
+      print('📡 URL: ${ApiConfig.baseUrl}/zones');
 
       final response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/zones'),
+        Uri.parse('${ApiConfig.baseUrl}/zones'), // CORRECT: no /create
         headers: ApiConfig.getHeaders(),
         body: json.encode(zoneData),
       ).timeout(const Duration(seconds: 15));
 
       print('📡 POST zone response: ${response.statusCode}');
-      print('📡 Response body: ${response.body}');
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         final result = json.decode(response.body);
@@ -319,6 +352,7 @@ class ZoneService {
         return result;
       } else {
         print('❌ Failed to create zone: ${response.statusCode}');
+        print('❌ Response body: ${response.body}');
         throw Exception('Failed to create zone: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
@@ -327,33 +361,14 @@ class ZoneService {
     }
   }
 
-  /// Create zone with raw data (legacy support)
-  Future<Map<String, dynamic>> createZoneRaw(Map<String, dynamic> zoneData) async {
-    try {
-      final response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/zones'),
-        headers: ApiConfig.getHeaders(),
-        body: json.encode(zoneData),
-      ).timeout(const Duration(seconds: 15));
-
-      print('📡 POST zone response: ${response.statusCode}');
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        return json.decode(response.body);
-      } else {
-        throw Exception('Failed to create zone: ${response.statusCode}');
-      }
-    } catch (e) {
-      print('❌ Error creating zone: $e');
-      throw Exception('Network error: $e');
-    }
-  }
-
-  /// Update zone
+  /// Update zone - FIXED: Using correct endpoint /zones/{id} (not /update)
   Future<Map<String, dynamic>> updateZone(String zoneId, Map<String, dynamic> zoneData) async {
     try {
+      final url = '${ApiConfig.baseUrl}/zones/$zoneId';
+      print('📡 PUT zone to: $url');
+
       final response = await http.put(
-        Uri.parse('${ApiConfig.baseUrl}/zones/$zoneId'),
+        Uri.parse(url),
         headers: ApiConfig.getHeaders(),
         body: json.encode(zoneData),
       ).timeout(const Duration(seconds: 15));
@@ -387,8 +402,11 @@ class ZoneService {
       final center = calculateCenter(points);
       final area = calculatePolygonArea(points);
 
+      final url = '${ApiConfig.baseUrl}/zones/$zoneId/polygon';
+      print('📡 PUT zone polygon to: $url');
+
       final response = await http.put(
-        Uri.parse('${ApiConfig.baseUrl}/zones/$zoneId'),
+        Uri.parse(url),
         headers: ApiConfig.getHeaders(),
         body: json.encode({
           'BoundaryPolygon': geoJson,
@@ -411,11 +429,14 @@ class ZoneService {
     }
   }
 
-  /// Delete zone
+  /// Delete zone - FIXED: Using correct endpoint /zones/{id} (not /delete)
   Future<bool> deleteZone(String zoneId) async {
     try {
+      final url = '${ApiConfig.baseUrl}/zones/$zoneId';
+      print('📡 DELETE zone at: $url');
+
       final response = await http.delete(
-        Uri.parse('${ApiConfig.baseUrl}/zones/$zoneId'),
+        Uri.parse(url),
         headers: ApiConfig.getHeaders(),
       ).timeout(const Duration(seconds: 10));
 
@@ -444,8 +465,11 @@ class ZoneService {
   /// Get zone statistics
   Future<Map<String, dynamic>> getZoneStatistics(String zoneId) async {
     try {
+      final url = '${ApiConfig.baseUrl}/zones/$zoneId/statistics';
+      print('📡 GET zone statistics from: $url');
+
       final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/zones/$zoneId/statistics'),
+        Uri.parse(url),
         headers: ApiConfig.getHeaders(),
       ).timeout(const Duration(seconds: 10));
 
@@ -458,27 +482,6 @@ class ZoneService {
       }
     } catch (e) {
       print('❌ Error loading zone statistics: $e');
-      throw Exception('Network error: $e');
-    }
-  }
-
-  /// Get zone polygon separately
-  Future<Map<String, dynamic>> getZonePolygon(String zoneId) async {
-    try {
-      final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/zone-polygons/zone/$zoneId'),
-        headers: ApiConfig.getHeaders(),
-      ).timeout(const Duration(seconds: 10));
-
-      print('📡 GET zone polygon response: ${response.statusCode}');
-
-      if (response.statusCode == 200) {
-        return json.decode(response.body);
-      } else {
-        throw Exception('Failed to load zone polygon: ${response.statusCode}');
-      }
-    } catch (e) {
-      print('❌ Error loading zone polygon: $e');
       throw Exception('Network error: $e');
     }
   }

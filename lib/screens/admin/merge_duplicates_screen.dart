@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../services/duplicate_service.dart';
 import '../../services/AuthService.dart';
 import '../../models/duplicate_cluster_model.dart';
-import '../../models/complaint_photo_model.dart';
+import '../../utils/image_utils.dart';
 
 class MergeDuplicatesScreen extends StatefulWidget {
   const MergeDuplicatesScreen({super.key});
@@ -409,21 +409,21 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
 
   // Helper method to get photo URL from various sources
   String? _getPhotoUrl(DuplicateEntry entry) {
-    // Try from entry.thumbnailPhotoUrl
+    // Try from entry.thumbnailPhotoUrl (which now uses fullPhotoUrl)
     if (entry.thumbnailPhotoUrl != null && entry.thumbnailPhotoUrl!.isNotEmpty) {
       return entry.thumbnailPhotoUrl;
     }
     // Try from complaint.firstPhotoUrl
     if (entry.complaint?.firstPhotoUrl != null && entry.complaint!.firstPhotoUrl!.isNotEmpty) {
-      return entry.complaint!.firstPhotoUrl;
+      return ImageUtils.getFullImageUrl(entry.complaint!.firstPhotoUrl);
     }
     // Try from complaint.complaintPhotos
     if (entry.complaint?.complaintPhotos.isNotEmpty == true) {
-      return entry.complaint!.complaintPhotos.first.photoUrl;
+      return entry.complaint!.complaintPhotos.first.fullPhotoUrl;
     }
     // Try from entry.photos
     if (entry.photos.isNotEmpty) {
-      return entry.photos.first.photoUrl;
+      return entry.photos.first.fullPhotoUrl;
     }
     return null;
   }
@@ -727,32 +727,12 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
                   ),
                   child: Row(
                     children: [
-                      if (primaryPhotoUrl != null)
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: Image.network(
-                            primaryPhotoUrl,
-                            width: 40,
-                            height: 40,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Container(
-                              width: 40,
-                              height: 40,
-                              color: Colors.grey[200],
-                              child: const Icon(Icons.image_not_supported, size: 24, color: Colors.grey),
-                            ),
-                          ),
-                        )
-                      else
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[200],
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Icon(Icons.image, size: 24, color: Colors.grey),
-                        ),
+                      // Primary complaint thumbnail using ImageUtils
+                      ImageUtils.buildImageWidget(
+                        imageUrl: primaryPhotoUrl,
+                        width: 40,
+                        height: 40,
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Column(
@@ -869,53 +849,12 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
             },
           ),
           const SizedBox(width: 12),
-          // Complaint thumbnail image with loading indicator
-          if (photoUrl != null && photoUrl.isNotEmpty)
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.network(
-                photoUrl,
-                width: 60,
-                height: 60,
-                fit: BoxFit.cover,
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) return child;
-                  return Container(
-                    width: 60,
-                    height: 60,
-                    color: Colors.grey[200],
-                    child: Center(
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          value: loadingProgress.expectedTotalBytes != null
-                              ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
-                              : null,
-                          strokeWidth: 2,
-                        ),
-                      ),
-                    ),
-                  );
-                },
-                errorBuilder: (_, __, ___) => Container(
-                  width: 60,
-                  height: 60,
-                  color: Colors.grey[200],
-                  child: const Icon(Icons.broken_image, size: 30, color: Colors.grey),
-                ),
-              ),
-            )
-          else
-            Container(
-              width: 60,
-              height: 60,
-              decoration: BoxDecoration(
-                color: Colors.grey[200],
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.image, size: 30, color: Colors.grey),
-            ),
+          // Complaint thumbnail using ImageUtils
+          ImageUtils.buildImageWidget(
+            imageUrl: photoUrl,
+            width: 60,
+            height: 60,
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
