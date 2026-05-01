@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../../services/AuthService.dart';
 import '../../services/complaint_service.dart';
 import '../../models/complaint_model.dart';
+import '../../models/complaint_photo_model.dart';
 import '../../models/ComplaintStatusHistory.dart';
+import '../../utils/image_utils.dart';
 
 class ComplaintDetailScreen extends StatefulWidget {
   const ComplaintDetailScreen({super.key});
@@ -23,7 +25,7 @@ class _ComplaintDetailScreenState extends State<ComplaintDetailScreen> {
   String? _errorMessage;
 
   Complaint? _complaint;
-  List<dynamic> _photos = [];
+  List<ComplaintPhoto> _photos = [];
   List<ComplaintStatusHistory> _statusHistory = [];
   String? _complaintId;
 
@@ -97,7 +99,7 @@ class _ComplaintDetailScreenState extends State<ComplaintDetailScreen> {
 
     try {
       final photos = await _complaintService.getComplaintPhotos(complaintId).timeout(
-        const Duration(seconds: 5),
+        const Duration(seconds: 10),
         onTimeout: () {
           print('Photo loading timed out');
           return [];
@@ -365,9 +367,9 @@ class _ComplaintDetailScreenState extends State<ComplaintDetailScreen> {
                           color: Colors.blue[100],
                           borderRadius: BorderRadius.circular(4),
                         ),
-                        child: const Text(
-                          'Category',
-                          style: TextStyle(
+                        child: Text(
+                          _complaint?.categoryName ?? 'Category',
+                          style: const TextStyle(
                             fontSize: 12,
                             color: Colors.blue,
                           ),
@@ -401,61 +403,69 @@ class _ComplaintDetailScreenState extends State<ComplaintDetailScreen> {
                   ),
                   const SizedBox(height: 24),
 
+                  // ===== UPDATED: Photo Gallery using ImageUtils =====
                   if (_isLoadingPhotos)
                     const Center(child: Padding(
                       padding: EdgeInsets.all(16),
                       child: CircularProgressIndicator(),
                     ))
                   else if (_photos.isNotEmpty) ...[
-                    const Text(
-                      'Photos',
-                      style: TextStyle(
+                    Text(
+                      'Photos (${_photos.length})',
+                      style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: 16),
                     SizedBox(
-                      height: 100,
+                      height: 120,
                       child: ListView.builder(
                         scrollDirection: Axis.horizontal,
                         itemCount: _photos.length,
                         itemBuilder: (context, index) {
                           final photo = _photos[index];
-                          String photoUrl = '';
-                          if (photo is Map) {
-                            photoUrl = photo['photoUrl']?.toString() ??
-                                photo['PhotoUrl']?.toString() ??
-                                photo['url']?.toString() ?? '';
-                          } else if (photo is String) {
-                            photoUrl = photo;
-                          }
-
-                          return Container(
-                            width: 100,
-                            margin: const EdgeInsets.only(right: 8),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(8),
-                              color: Colors.grey[200],
-                            ),
-                            child: photoUrl.isNotEmpty
-                                ? ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Image.network(
-                                photoUrl,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return Container(
-                                    color: Colors.grey[300],
-                                    child: const Center(
-                                      child: Icon(Icons.broken_image, color: Colors.grey),
-                                    ),
-                                  );
-                                },
+                          return GestureDetector(
+                            onTap: () {
+                              // Optional: Show full screen image viewer
+                              _showFullScreenImage(photo.fullPhotoUrl);
+                            },
+                            child: Container(
+                              width: 100,
+                              height: 100,
+                              margin: const EdgeInsets.only(right: 12),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Image.network(
+                                  photo.fullPhotoUrl,
+                                  fit: BoxFit.cover,
+                                  loadingBuilder: (context, child, loadingProgress) {
+                                    if (loadingProgress == null) return child;
+                                    return Container(
+                                      color: Colors.grey[200],
+                                      child: Center(
+                                        child: SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                            value: loadingProgress.expectedTotalBytes != null
+                                                ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                                                : null,
+                                            strokeWidth: 2,
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  errorBuilder: (context, error, stackTrace) {
+                                    print('❌ Failed to load photo: ${photo.fullPhotoUrl}');
+                                    return Container(
+                                      color: Colors.grey[200],
+                                      child: const Icon(Icons.broken_image, color: Colors.grey),
+                                    );
+                                  },
+                                ),
                               ),
-                            )
-                                : const Center(
-                              child: Icon(Icons.image, color: Colors.grey),
                             ),
                           );
                         },
@@ -557,6 +567,41 @@ class _ComplaintDetailScreenState extends State<ComplaintDetailScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  void _showFullScreenImage(String imageUrl) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(Icons.close, color: Colors.white),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ),
+          body: Center(
+            child: InteractiveViewer(
+              child: Image.network(
+                imageUrl,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) {
+                  return const Center(
+                    child: Text(
+                      'Failed to load image',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
         ),
       ),
     );

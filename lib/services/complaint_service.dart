@@ -82,17 +82,35 @@ class ComplaintService {
     }
   }
 
-  /// Get ALL complaints (for admin)
+  /// Get ALL complaints (for admin) - FIXED: System_Admin sees ALL complaints
   Future<List<Complaint>> getAllComplaints({
     int page = 1,
-    int pageSize = 50,
+    int pageSize = 100,
     String? status,
     String? zoneId,
     String? categoryId,
     String? departmentId,
   }) async {
     try {
+      // Check if user is System_Admin
+      final userType = await _authService.getUserType();
+      final isSystemAdmin = userType == 'System_Admin';
+
       String url = '${ApiConfig.baseUrl}/complaints?page=$page&pageSize=$pageSize';
+
+      // IMPORTANT: Only filter by department if NOT system admin
+      if (departmentId != null) {
+        url += '&departmentId=$departmentId';
+      } else if (!isSystemAdmin) {
+        // For department admins, automatically filter by their department
+        final departmentIdFromStorage = await _authService.getDepartmentId();
+        if (departmentIdFromStorage != null && departmentIdFromStorage.isNotEmpty) {
+          url += '&departmentId=$departmentIdFromStorage';
+          print('📋 Filtering by department: $departmentIdFromStorage');
+        }
+      } else {
+        print('👑 System Admin - Showing ALL complaints across all departments');
+      }
 
       if (status != null) {
         url += '&status=$status';
@@ -103,16 +121,14 @@ class ComplaintService {
       if (categoryId != null) {
         url += '&categoryId=$categoryId';
       }
-      if (departmentId != null) {
-        url += '&departmentId=$departmentId';
-      }
 
       print('📡 Fetching complaints from: $url');
+      print('👤 User type: $userType, IsSystemAdmin: $isSystemAdmin');
 
       final response = await http.get(
         Uri.parse(url),
         headers: ApiConfig.getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 15));
 
       print('📡 Response status: ${response.statusCode}');
 
@@ -120,10 +136,22 @@ class ComplaintService {
         final dynamic data = json.decode(response.body);
         print('📦 Response body type: ${data.runtimeType}');
 
-        List<dynamic> complaintsList = [];
+        List<Complaint> allComplaints = [];
 
         if (data is Map) {
           print('📦 Response keys: ${data.keys}');
+
+          // Get pagination info
+          int totalPages = data['TotalPages'] ?? data['totalPages'] ?? 1;
+          int currentPage = data['Page'] ?? data['page'] ?? page;
+          int totalCount = data['TotalCount'] ?? data['totalCount'] ?? 0;
+
+          print('📊 Total complaints in DB: $totalCount');
+          print('📊 Total pages: $totalPages, Current page: $currentPage');
+          print('📊 Page size: $pageSize');
+
+          // Extract complaints from current page
+          List<dynamic> complaintsList = [];
 
           if (data.containsKey('Complaints') && data['Complaints'] is List) {
             complaintsList = data['Complaints'];
@@ -141,35 +169,89 @@ class ComplaintService {
             complaintsList = data['results'];
             print('✅ Found ${complaintsList.length} complaints in "results"');
           }
+
+          // Parse current page complaints
+          for (var json in complaintsList) {
+            try {
+              allComplaints.add(Complaint.fromJson(json));
+            } catch (e) {
+              print('❌ Error parsing complaint: $e');
+            }
+          }
+
+          // If there are more pages, fetch them (only for system admin or if needed)
+          if (currentPage < totalPages && totalCount > allComplaints.length) {
+            print('📄 Fetching remaining pages from ${currentPage + 1} to $totalPages');
+
+            // Fetch all remaining pages
+            for (int p = currentPage + 1; p <= totalPages; p++) {
+              try {
+                String nextUrl = '${ApiConfig.baseUrl}/complaints?page=$p&pageSize=$pageSize';
+
+                // Apply same filtering logic for subsequent pages
+                if (departmentId != null) {
+                  nextUrl += '&departmentId=$departmentId';
+                } else if (!isSystemAdmin) {
+                  final departmentIdFromStorage = await _authService.getDepartmentId();
+                  if (departmentIdFromStorage != null && departmentIdFromStorage.isNotEmpty) {
+                    nextUrl += '&departmentId=$departmentIdFromStorage';
+                  }
+                }
+
+                if (status != null) nextUrl += '&status=$status';
+                if (zoneId != null) nextUrl += '&zoneId=$zoneId';
+                if (categoryId != null) nextUrl += '&categoryId=$categoryId';
+
+                print('📡 Fetching page $p from: $nextUrl');
+
+                final nextResponse = await http.get(
+                  Uri.parse(nextUrl),
+                  headers: ApiConfig.getHeaders(),
+                ).timeout(const Duration(seconds: 15));
+
+                if (nextResponse.statusCode == 200) {
+                  final nextData = json.decode(nextResponse.body);
+                  List<dynamic> nextComplaintsList = [];
+
+                  if (nextData.containsKey('Complaints') && nextData['Complaints'] is List) {
+                    nextComplaintsList = nextData['Complaints'];
+                  }
+                  else if (nextData.containsKey('complaints') && nextData['complaints'] is List) {
+                    nextComplaintsList = nextData['complaints'];
+                  }
+                  else if (nextData.containsKey('data') && nextData['data'] is List) {
+                    nextComplaintsList = nextData['data'];
+                  }
+
+                  for (var json in nextComplaintsList) {
+                    try {
+                      allComplaints.add(Complaint.fromJson(json));
+                    } catch (e) {
+                      print('❌ Error parsing complaint on page $p: $e');
+                    }
+                  }
+                  print('✅ Page $p loaded: ${nextComplaintsList.length} complaints');
+                }
+              } catch (e) {
+                print('❌ Error fetching page $p: $e');
+              }
+            }
+          }
         }
         else if (data is List) {
-          complaintsList = data;
-          print('✅ Found ${complaintsList.length} complaints (direct list)');
+          // Direct list response (no pagination)
+          print('✅ Found ${data.length} complaints (direct list)');
+          for (var json in data) {
+            try {
+              allComplaints.add(Complaint.fromJson(json));
+            } catch (e) {
+              print('❌ Error parsing complaint: $e');
+            }
+          }
         }
 
-        // Fetch more pages if needed
-        if (data is Map && data.containsKey('TotalPages') && data['TotalPages'] > page) {
-          print('📄 Fetching page ${page + 1} of ${data['TotalPages']}');
-          final nextPage = await getAllComplaints(
-            page: page + 1,
-            pageSize: pageSize,
-            status: status,
-            zoneId: zoneId,
-            categoryId: categoryId,
-            departmentId: departmentId,
-          );
-          complaintsList.addAll(nextPage);
-        }
-
-        print('🔍 DEBUG - Raw complaints list size: ${complaintsList.length}');
-        final parsedComplaints = complaintsList.map((json) {
-          print('📋 Raw JSON ID: ${json['ComplaintId']} - Title: ${json['Title']} - SubmissionStatus: ${json['SubmissionStatus']}');
-          final complaint = Complaint.fromJson(json);
-          print('📋 Parsed ID: ${complaint.complaintId} - submissionStatus: ${complaint.submissionStatus}');
-          return complaint;
-        }).toList();
-
-        return parsedComplaints;
+        print('✅ Total complaints loaded: ${allComplaints.length}');
+        return allComplaints;
       } else {
         print('❌ Error: ${response.statusCode} - ${response.body}');
         return [];

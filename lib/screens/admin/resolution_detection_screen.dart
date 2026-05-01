@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../services/resolution_service.dart';
 import '../../models/resolution_model.dart';
 import '../../services/AuthService.dart';
+import '../../utils/image_utils.dart';
 
 class ResolutionDetectionScreen extends StatefulWidget {
   const ResolutionDetectionScreen({super.key});
@@ -150,6 +151,48 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen> {
         );
       }
     }
+  }
+
+  void _showFullScreenImage(String imageUrl) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(Icons.close, color: Colors.white),
+              onPressed: () => Navigator.pop(context),
+            ),
+            title: const Text('Full Resolution Photo', style: TextStyle(color: Colors.white)),
+          ),
+          body: Center(
+            child: InteractiveViewer(
+              minScale: 0.5,
+              maxScale: 4.0,
+              child: Image.network(
+                imageUrl,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) {
+                  return const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.broken_image, size: 64, color: Colors.grey),
+                        SizedBox(height: 16),
+                        Text('Failed to load image', style: TextStyle(color: Colors.white)),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _showFlagDialog(String submissionId) {
@@ -557,11 +600,11 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen> {
                 Row(
                   children: [
                     Expanded(
-                      child: _buildPhotoPlaceholder('BEFORE', submission.beforePhotoUrl),
+                      child: _buildPhotoComparison('BEFORE', submission.beforePhotoUrl, statusColor),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: _buildPhotoPlaceholder('AFTER', submission.afterPhotoUrl),
+                      child: _buildPhotoComparison('AFTER', submission.afterPhotoUrl, statusColor),
                     ),
                   ],
                 ),
@@ -662,42 +705,122 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen> {
     );
   }
 
-  Widget _buildPhotoPlaceholder(String label, String? imageUrl) {
-    return Container(
-      height: 120,
-      decoration: BoxDecoration(
-        color: Colors.grey[200],
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey[300]!),
-      ),
-      child: imageUrl != null && imageUrl.isNotEmpty
-          ? ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: Image.network(
-          imageUrl,
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.broken_image, size: 30, color: Colors.grey[400]),
-                  const SizedBox(height: 4),
-                  Text(label, style: TextStyle(fontSize: 10, color: Colors.grey[400])),
-                ],
-              ),
-            );
-          },
+  Widget _buildPhotoComparison(String label, String? imageUrl, Color statusColor) {
+    // Generate full URL for the image
+    String fullImageUrl = '';
+    if (imageUrl != null && imageUrl.isNotEmpty) {
+      fullImageUrl = ImageUtils.getFullImageUrl(imageUrl);
+    }
+
+    return GestureDetector(
+      onTap: () {
+        if (fullImageUrl.isNotEmpty) {
+          _showFullScreenImage(fullImageUrl);
+        }
+      },
+      child: Container(
+        height: 180,
+        decoration: BoxDecoration(
+          color: Colors.grey[200],
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: statusColor.withOpacity(0.5), width: 2),
         ),
-      )
-          : Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.image, size: 40, color: Colors.grey),
-            const SizedBox(height: 4),
-            Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600)),
-          ],
+        child: fullImageUrl.isNotEmpty
+            ? ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.network(
+                fullImageUrl,
+                fit: BoxFit.cover,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 30,
+                          height: 30,
+                          child: CircularProgressIndicator(
+                            value: loadingProgress.expectedTotalBytes != null
+                                ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                                : null,
+                            strokeWidth: 2,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          label,
+                          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) {
+                  print('❌ Failed to load $label image: $fullImageUrl');
+                  return Container(
+                    color: Colors.grey[200],
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.broken_image, size: 40, color: Colors.grey[400]),
+                        const SizedBox(height: 8),
+                        Text(
+                          label,
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey[600]),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Failed to load',
+                          style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+              Positioned(
+                bottom: 8,
+                left: 8,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.7),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        )
+            : Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.image_not_supported, size: 40, color: Colors.grey[400]),
+              const SizedBox(height: 8),
+              Text(
+                label,
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'No image available',
+                style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+              ),
+            ],
+          ),
         ),
       ),
     );
