@@ -1,10 +1,12 @@
 // lib/screens/staff/staff_map_screen.dart
 
 import 'dart:math' as math;
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../services/staff_action_service.dart';
+import '../../services/map_service.dart';
 import '../../services/authservice.dart';
 import '../../config/routes.dart';
 
@@ -18,9 +20,11 @@ class StaffMapScreen extends StatefulWidget {
 class _StaffMapScreenState extends State<StaffMapScreen> {
   GoogleMapController? _mapController;
   final StaffActionService _staffActionService = StaffActionService();
+  final MapService _mapService = MapService();
   final AuthService _authService = AuthService();
 
   Set<Marker> _markers = {};
+  Set<Polygon> _polygons = {};
   Set<Polyline> _polylines = {};
   LatLng? _currentLocation;
   LatLng? _selectedLocation;
@@ -30,6 +34,7 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
 
   // Track selected complaint for navigation
   Map<String, dynamic>? _selectedComplaint;
+  List<Map<String, dynamic>> _nearbyComplaints = [];
 
   @override
   void initState() {
@@ -42,6 +47,7 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
     if (_staffId != null) {
       await _getCurrentLocation();
       await _loadNearbyComplaints();
+      await _loadZoneBoundaries();
       await _updateStaffLocation();
     }
     setState(() => _isLoading = false);
@@ -66,7 +72,7 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
 
         // Center map on current location
         _mapController?.animateCamera(
-          CameraUpdate.newLatLngZoom(_currentLocation!, 14),
+          CameraUpdate.newLatLngZoom(_currentLocation!, 13),
         );
       }
     } catch (e) {
@@ -77,130 +83,145 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
     }
   }
 
-  Future<void> _loadNearbyComplaints() async {
-    if (_staffId == null || _currentLocation == null) return;
-
+  Future<void> _loadZoneBoundaries() async {
     try {
-      // getNearbyComplaints returns a Map<String, dynamic>
-      final Map<String, dynamic> response = await _staffActionService.getNearbyComplaints(
-        _staffId!,
-        _currentLocation!.latitude,
-        _currentLocation!.longitude,
-        3.0,
-      );
+      final zones = await _mapService.getZonesWithBoundaries();
 
-      Set<Marker> newMarkers = {};
+      final Set<Polygon> zonePolygons = {};
 
-      // Extract complaints from response Map
-      List<dynamic> complaintsList = [];
+      for (var zone in zones) {
+        // Get zone color
+        final colorCode = zone['colorCode'] ?? '#2196F3';
+        final color = Color(int.parse(colorCode.replaceAll('#', '0xFF')));
 
-      // Try different possible keys where complaints might be stored
-      if (response.containsKey('Complaints')) {
-        complaintsList = response['Complaints'] as List<dynamic>;
-      } else if (response.containsKey('complaints')) {
-        complaintsList = response['complaints'] as List<dynamic>;
-      } else if (response.containsKey('data')) {
-        complaintsList = response['data'] as List<dynamic>;
-      } else if (response.containsKey('Data')) {
-        complaintsList = response['Data'] as List<dynamic>;
-      } else if (response.containsKey('results')) {
-        complaintsList = response['results'] as List<dynamic>;
-      } else if (response.containsKey('items')) {
-        complaintsList = response['items'] as List<dynamic>;
-      }
+        // Parse boundaries
+        final boundaries = zone['boundaries'];
+        if (boundaries != null && boundaries is String && boundaries.isNotEmpty) {
+          try {
+            // Parse GeoJSON polygon
+            final Map<String, dynamic> geoJson = jsonDecode(boundaries);
+            if (geoJson['type'] == 'Polygon' && geoJson['coordinates'] != null) {
+              final coordinates = geoJson['coordinates'] as List;
+              if (coordinates.isNotEmpty) {
+                final points = (coordinates.first as List).map((coord) {
+                  return LatLng(coord[1].toDouble(), coord[0].toDouble());
+                }).toList();
 
-      print('📍 Found ${complaintsList.length} nearby complaints');
-
-      // Process each complaint
-      for (var complaint in complaintsList) {
-        if (complaint is Map<String, dynamic>) {
-          // Extract complaint ID
-          String complaintId = complaint['complaintId']?.toString() ??
-              complaint['ComplaintId']?.toString() ??
-              complaint['id']?.toString() ??
-              DateTime.now().millisecondsSinceEpoch.toString();
-
-          // Extract coordinates
-          double lat = 0.0;
-          double lng = 0.0;
-
-          if (complaint.containsKey('locationLatitude')) {
-            lat = (complaint['locationLatitude'] as num).toDouble();
-          } else if (complaint.containsKey('LocationLatitude')) {
-            lat = (complaint['LocationLatitude'] as num).toDouble();
-          } else if (complaint.containsKey('latitude')) {
-            lat = (complaint['latitude'] as num).toDouble();
-          } else if (complaint.containsKey('Latitude')) {
-            lat = (complaint['Latitude'] as num).toDouble();
+                if (points.length >= 3) {
+                  zonePolygons.add(
+                    Polygon(
+                      polygonId: PolygonId(zone['zoneId'].toString()),
+                      points: points,
+                      fillColor: color.withOpacity(0.2),
+                      strokeColor: color,
+                      strokeWidth: 2,
+                      geodesic: true,
+                      consumeTapEvents: true,
+                      onTap: () {
+                        print('Tapped on zone: ${zone['zoneName']}');
+                      },
+                    ),
+                  );
+                }
+              }
+            }
+          } catch (e) {
+            print('Error parsing zone boundary for ${zone['zoneName']}: $e');
           }
-
-          if (complaint.containsKey('locationLongitude')) {
-            lng = (complaint['locationLongitude'] as num).toDouble();
-          } else if (complaint.containsKey('LocationLongitude')) {
-            lng = (complaint['LocationLongitude'] as num).toDouble();
-          } else if (complaint.containsKey('longitude')) {
-            lng = (complaint['longitude'] as num).toDouble();
-          } else if (complaint.containsKey('Longitude')) {
-            lng = (complaint['Longitude'] as num).toDouble();
-          }
-
-          // Skip if no valid coordinates
-          if (lat == 0.0 && lng == 0.0) continue;
-
-          // Extract title
-          String title = complaint['title']?.toString() ??
-              complaint['Title']?.toString() ??
-              'Unknown Complaint';
-
-          // Extract priority
-          String priority = complaint['priority']?.toString() ??
-              complaint['Priority']?.toString() ??
-              'Medium';
-
-          // Extract distance
-          double distance = 0.0;
-          if (complaint.containsKey('distanceKm')) {
-            distance = (complaint['distanceKm'] as num).toDouble();
-          } else if (complaint.containsKey('distance')) {
-            distance = (complaint['distance'] as num).toDouble();
-          }
-
-          newMarkers.add(
-            Marker(
-              markerId: MarkerId(complaintId),
-              position: LatLng(lat, lng),
-              infoWindow: InfoWindow(
-                title: title,
-                snippet: 'Priority: $priority • ${distance.toStringAsFixed(1)}km away',
-              ),
-              icon: _getMarkerIcon(priority),
-              onTap: () {
-                setState(() {
-                  _selectedComplaint = Map<String, dynamic>.from(complaint);
-                  _selectedLocation = LatLng(lat, lng);
-                  _showRoute();
-                });
-              },
-            ),
-          );
         }
       }
 
-      // Add staff location marker
-      newMarkers.add(
-        Marker(
-          markerId: const MarkerId('staff_location'),
-          position: _currentLocation!,
-          infoWindow: const InfoWindow(title: 'Your Location'),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-        ),
+      setState(() {
+        _polygons = zonePolygons;
+      });
+
+      print('✅ Loaded ${zonePolygons.length} zone polygons');
+    } catch (e) {
+      print('❌ Error loading zone boundaries: $e');
+    }
+  }
+
+  Future<void> _loadNearbyComplaints() async {
+    if (_currentLocation == null) return;
+
+    try {
+      // Use MapService to get nearby complaints from map endpoint
+      final complaints = await _mapService.getNearbyComplaints(
+        _currentLocation!.latitude,
+        _currentLocation!.longitude,
+        radiusKm: 5.0,
+        limit: 50,
       );
+
+      setState(() {
+        _nearbyComplaints = complaints;
+      });
+
+      final Set<Marker> newMarkers = {};
+
+      print('📍 Found ${complaints.length} nearby complaints from map service');
+
+      for (var complaint in complaints) {
+        // Extract complaint ID
+        final complaintId = complaint['complaintId']?.toString() ??
+            complaint['ComplaintId']?.toString() ??
+            DateTime.now().millisecondsSinceEpoch.toString();
+
+        // Extract coordinates
+        final lat = (complaint['latitude'] ?? complaint['Latitude'] ?? 0.0).toDouble();
+        final lng = (complaint['longitude'] ?? complaint['Longitude'] ?? 0.0).toDouble();
+
+        if (lat == 0.0 && lng == 0.0) continue;
+
+        // Extract details
+        final title = complaint['title']?.toString() ??
+            complaint['Title']?.toString() ??
+            'Unknown Complaint';
+
+        final priority = complaint['priority']?.toString() ??
+            complaint['Priority']?.toString() ??
+            'Medium';
+
+        final distance = complaint['distanceKm']?.toDouble() ?? 0.0;
+        final statusText = complaint['statusText']?.toString() ?? 'Active';
+
+        newMarkers.add(
+          Marker(
+            markerId: MarkerId(complaintId),
+            position: LatLng(lat, lng),
+            infoWindow: InfoWindow(
+              title: title.length > 30 ? '${title.substring(0, 30)}...' : title,
+              snippet: 'Priority: $priority • ${distance.toStringAsFixed(1)}km away • Status: $statusText',
+            ),
+            icon: _getMarkerIcon(priority),
+            onTap: () {
+              setState(() {
+                _selectedComplaint = Map<String, dynamic>.from(complaint);
+                _selectedLocation = LatLng(lat, lng);
+                _showRoute();
+              });
+            },
+          ),
+        );
+      }
+
+      // Add staff location marker
+      if (_currentLocation != null) {
+        newMarkers.add(
+          Marker(
+            markerId: const MarkerId('staff_location'),
+            position: _currentLocation!,
+            infoWindow: const InfoWindow(title: 'Your Location'),
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+          ),
+        );
+      }
 
       setState(() {
         _markers = newMarkers;
       });
 
-      if (complaintsList.isEmpty) {
+      if (complaints.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('No nearby complaints found in your area'),
@@ -210,7 +231,7 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Found ${complaintsList.length} nearby complaints'),
+            content: Text('Found ${complaints.length} nearby complaints'),
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 2),
           ),
@@ -228,11 +249,12 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
     if (_staffId == null || _currentLocation == null) return;
 
     try {
+      // Use StaffActionService to update staff location
       await _staffActionService.updateLocation(
         _staffId!,
         _currentLocation!.latitude,
         _currentLocation!.longitude,
-        10.0,
+        5.0,
       );
     } catch (e) {
       print('Error updating location: $e');
@@ -248,13 +270,17 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
           polylineId: const PolylineId('route'),
           points: [_currentLocation!, _selectedLocation!],
           color: Colors.blue,
-          width: 3,
+          width: 4,
+          patterns: [
+            PatternItem.dash(30),
+            PatternItem.gap(10),
+          ],
         ),
       };
     });
 
     // Calculate distance
-    double distance = _calculateDistance(
+    final distance = _calculateDistance(
       _currentLocation!.latitude,
       _currentLocation!.longitude,
       _selectedLocation!.latitude,
@@ -275,12 +301,12 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
 
   double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
     const double R = 6371;
-    double dLat = _toRadians(lat2 - lat1);
-    double dLon = _toRadians(lon2 - lon1);
-    double a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+    final double dLat = _toRadians(lat2 - lat1);
+    final double dLon = _toRadians(lon2 - lon1);
+    final double a = math.sin(dLat / 2) * math.sin(dLat / 2) +
         math.cos(_toRadians(lat1)) * math.cos(_toRadians(lat2)) *
             math.sin(dLon / 2) * math.sin(dLon / 2);
-    double c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    final double c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
     return R * c;
   }
 
@@ -318,6 +344,7 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
     setState(() => _isLoading = true);
     await _getCurrentLocation();
     await _loadNearbyComplaints();
+    await _loadZoneBoundaries();
     await _updateStaffLocation();
     setState(() => _isLoading = false);
   }
@@ -345,11 +372,11 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
               _selectedComplaint!['ZoneName'],
           'locationAddress': _selectedComplaint!['locationAddress'] ??
               _selectedComplaint!['LocationAddress'],
-          'locationLatitude': _selectedComplaint!['locationLatitude'] ??
-              _selectedComplaint!['LocationLatitude'],
-          'locationLongitude': _selectedComplaint!['locationLongitude'] ??
-              _selectedComplaint!['LocationLongitude'],
-          'status': 'Assigned',
+          'locationLatitude': _selectedComplaint!['latitude'] ??
+              _selectedComplaint!['Latitude'],
+          'locationLongitude': _selectedComplaint!['longitude'] ??
+              _selectedComplaint!['Longitude'],
+          'status': _selectedComplaint!['statusText'] ?? 'Active',
         },
       ).then((result) {
         if (result == true) {
@@ -444,10 +471,11 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
           GoogleMap(
             initialCameraPosition: CameraPosition(
               target: _currentLocation ?? const LatLng(33.6844, 73.0479),
-              zoom: 14,
+              zoom: 13,
             ),
             onMapCreated: (controller) => _mapController = controller,
             markers: _markers,
+            polygons: _polygons,
             polylines: _polylines,
             myLocationEnabled: true,
             myLocationButtonEnabled: true,
@@ -462,6 +490,66 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
             },
           ),
 
+          // Stats overlay
+          Positioned(
+            top: 16,
+            left: 16,
+            right: 16,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.location_on, size: 16, color: Colors.blue),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${_nearbyComplaints.length} nearby',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      Icon(Icons.category, size: 16, color: Colors.green),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${_polygons.length} zones',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      Icon(Icons.my_location, size: 16, color: Colors.red),
+                      const SizedBox(width: 4),
+                      Text(
+                        _currentLocation != null ? 'GPS active' : 'GPS off',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: _currentLocation != null ? Colors.green : Colors.red,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+
           // Bottom sheet for selected complaint
           if (_selectedComplaint != null)
             DraggableScrollableSheet(
@@ -471,6 +559,9 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
               builder: (context, scrollController) {
                 final priority = _selectedComplaint!['priority']?.toString() ??
                     _selectedComplaint!['Priority']?.toString() ?? 'Medium';
+                final status = _selectedComplaint!['statusText']?.toString() ??
+                    _selectedComplaint!['CurrentStatus']?.toString() ?? 'Active';
+                final distance = _selectedComplaint!['distanceKm']?.toDouble() ?? 0.0;
 
                 return Container(
                   decoration: BoxDecoration(
@@ -517,10 +608,24 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
                                   ),
                                 ),
                                 const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: status == 'Resolved' ? Colors.green.withOpacity(0.1) : Colors.blue.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    status,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: status == 'Resolved' ? Colors.green : Colors.blue,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                                const Spacer(),
                                 Text(
-                                  _selectedComplaint!['complaintNumber']?.toString() ??
-                                      _selectedComplaint!['ComplaintNumber']?.toString() ??
-                                      'N/A',
+                                  '${distance.toStringAsFixed(1)} km away',
                                   style: TextStyle(fontSize: 12, color: Colors.grey[500]),
                                 ),
                               ],
@@ -589,7 +694,7 @@ class _StaffMapScreenState extends State<StaffMapScreen> {
         onPressed: () async {
           await _getCurrentLocation();
           _mapController?.animateCamera(
-            CameraUpdate.newLatLngZoom(_currentLocation!, 14),
+            CameraUpdate.newLatLngZoom(_currentLocation!, 13),
           );
         },
         child: const Icon(Icons.my_location),

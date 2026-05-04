@@ -1,9 +1,12 @@
+// lib/models/user_model.dart
+import 'dart:ui';
+import 'package:flutter/material.dart';
 class User {
   final String userId;
   final String userType;
   final String fullName;
   final String email;
-  final String? passwordHash;  // CHANGE: Make it optional (nullable)
+  final String? passwordHash;
   final String? phoneNumber;
   final String? zoneId;
   final bool isActive;
@@ -15,12 +18,17 @@ class User {
   final DateTime updatedAt;
   final DateTime? lastLogin;
 
+  // ===== NEW: Fake complaint tracking fields =====
+  final int fakeStrikes;
+  final bool isBanned;
+  final DateTime? banExpiryDate;
+
   User({
     required this.userId,
     required this.userType,
     required this.fullName,
     required this.email,
-    this.passwordHash,  // CHANGE: Make optional
+    this.passwordHash,
     this.phoneNumber,
     this.zoneId,
     required this.isActive,
@@ -31,6 +39,9 @@ class User {
     required this.isVerified,
     required this.updatedAt,
     this.lastLogin,
+    this.fakeStrikes = 0,
+    this.isBanned = false,
+    this.banExpiryDate,
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
@@ -39,7 +50,7 @@ class User {
       userType: json['user_type'] ?? json['UserType'] ?? '',
       fullName: json['full_name'] ?? json['FullName'] ?? '',
       email: json['email'] ?? json['Email'] ?? '',
-      passwordHash: json['password_hash'] ?? json['PasswordHash'],  // Will be null in login responses
+      passwordHash: json['password_hash'] ?? json['PasswordHash'],
       phoneNumber: json['PhoneNumber'] ?? json['phone_number'],
       zoneId: json['zone_id']?.toString() ?? json['ZoneId']?.toString(),
       isActive: json['is_active'] ?? json['IsActive'] ?? false,
@@ -50,8 +61,16 @@ class User {
       isVerified: json['IsVerified'] ?? json['is_verified'] ?? false,
       updatedAt: _parseDateTime(json['UpdatedAt'] ?? json['updated_at']),
       lastLogin: json['LastLogin'] != null ? _parseDateTime(json['LastLogin']) : null,
+
+      // Parse fake tracking fields
+      fakeStrikes: json['FakeStrikes'] ?? json['fakeStrikes'] ?? 0,
+      isBanned: json['IsBanned'] ?? json['isBanned'] ?? false,
+      banExpiryDate: json['BanExpiryDate'] != null
+          ? _parseDateTime(json['BanExpiryDate'])
+          : (json['banExpiryDate'] != null ? _parseDateTime(json['banExpiryDate']) : null),
     );
   }
+
   Map<String, dynamic> toJson() {
     return {
       'user_id': userId,
@@ -61,7 +80,38 @@ class User {
       'phoneNumber': phoneNumber,
       'profilePhotoUrl': profilePhotoUrl,
       'isVerified': isVerified,
+      'fakeStrikes': fakeStrikes,
+      'isBanned': isBanned,
+      'banExpiryDate': banExpiryDate?.toIso8601String(),
     };
+  }
+
+  // ===== Helper methods - NOT getters =====
+  bool isTempBanned() {
+    return isBanned && banExpiryDate != null && banExpiryDate!.isAfter(DateTime.now());
+  }
+
+  bool isPermBanned() {
+    return isBanned && (banExpiryDate == null || banExpiryDate!.isBefore(DateTime.now()));
+  }
+
+  String getBanStatusMessage() {
+    if (isPermBanned()) return 'Account permanently banned';
+    if (isTempBanned()) return 'Account banned until ${_formatDate(banExpiryDate!)}';
+    if (fakeStrikes == 1) return '⚠️ Warning: ${3 - fakeStrikes} more fake complaint(s) = account ban';
+    if (fakeStrikes == 2) return '⚠️ FINAL WARNING: 1 more fake complaint = permanent account ban!';
+    return 'No strikes. Keep reporting genuine issues!';
+  }
+
+  Color getBanStatusColor() {
+    if (isPermBanned() || isTempBanned()) return Colors.red;
+    if (fakeStrikes == 2) return Colors.red;
+    if (fakeStrikes == 1) return Colors.orange;
+    return Colors.green;
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.day}/${date.month}/${date.year}';
   }
 
   static DateTime _parseDateTime(dynamic value) {

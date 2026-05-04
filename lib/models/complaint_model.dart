@@ -56,6 +56,11 @@ class Complaint {
   final int submissionStatus;
   final int currentStatus;
 
+  // ===== NEW: Fake complaint tracking =====
+  final bool isFake;
+  final String? fakeVerifiedBy;
+  final DateTime? fakeVerifiedAt;
+
   // Display fields from nested objects
   final String? categoryName;
   final String? zoneName;
@@ -100,6 +105,9 @@ class Complaint {
     this.assignedAt,
     required this.submissionStatus,
     required this.currentStatus,
+    this.isFake = false,
+    this.fakeVerifiedBy,
+    this.fakeVerifiedAt,
     this.categoryName,
     this.zoneName,
     this.departmentName,
@@ -230,6 +238,14 @@ class Complaint {
           json['SubmissionStatus'] ?? json['submissionStatus']),
       currentStatus:
       _parseStatus(json['CurrentStatus'] ?? json['currentStatus']),
+
+      // ===== NEW: Parse fake complaint fields =====
+      isFake: json['IsFake'] ?? json['isFake'] ?? false,
+      fakeVerifiedBy: json['FakeVerifiedBy']?.toString() ?? json['fakeVerifiedBy']?.toString(),
+      fakeVerifiedAt: json['FakeVerifiedAt'] != null
+          ? _parseDateTime(json['FakeVerifiedAt'])
+          : (json['fakeVerifiedAt'] != null ? _parseDateTime(json['fakeVerifiedAt']) : null),
+
       categoryName: extractedCategoryName,
       zoneName: extractedZoneName,
       departmentName: extractedDepartmentName,
@@ -350,6 +366,9 @@ class Complaint {
       'assigned_at': assignedAt?.toIso8601String(),
       'SubmissionStatus': submissionStatus,
       'CurrentStatus': currentStatus,
+      'IsFake': isFake,
+      'FakeVerifiedBy': fakeVerifiedBy,
+      'FakeVerifiedAt': fakeVerifiedAt?.toIso8601String(),
       if (citizen != null) 'citizen': citizen!.toJson(),
       'ComplaintPhotos': complaintPhotos.map((p) => p.toJson()).toList(),
     };
@@ -387,7 +406,7 @@ class Complaint {
     }
   }
 
-  // ===== FIXED: Use fullPhotoUrl instead of raw photoUrl =====
+  // Helper method to get first photo URL
   String? get firstPhotoUrl {
     if (complaintPhotos.isNotEmpty) {
       return complaintPhotos.first.fullPhotoUrl;
@@ -395,7 +414,7 @@ class Complaint {
     return null;
   }
 
-  // ===== ADDED: Get all photo URLs as full URLs =====
+  // Get all photo URLs as full URLs
   List<String> getAllPhotoUrls() {
     return complaintPhotos.map((p) => p.fullPhotoUrl).toList();
   }

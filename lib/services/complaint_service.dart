@@ -438,7 +438,71 @@ class ComplaintService {
       return [];
     }
   }
+// Add to complaint_service.dart
+  // lib/services/complaint_service.dart
+// Add this method to existing ComplaintService class
 
+  /// Mark complaint as fake (Admin only)
+  Future<Map<String, dynamic>> markAsFake(String complaintId, String adminId) async {
+    try {
+      print('📡 Marking complaint as fake: $complaintId');
+
+      final response = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/complaints/$complaintId/mark-fake'),
+        headers: ApiConfig.getHeaders(),
+        body: json.encode({'adminId': adminId}),
+      ).timeout(const Duration(seconds: 10));
+
+      print('📡 Response status: ${response.statusCode}');
+      print('📦 Response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        final error = json.decode(response.body);
+        throw Exception(error['error'] ?? 'Failed to mark as fake');
+      }
+    } catch (e) {
+      print('❌ Error marking as fake: $e');
+      rethrow;
+    }
+  }
+
+  /// Get citizen's strike info
+  Future<Map<String, dynamic>> getCitizenStrikes(String citizenId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/complaints/citizen/$citizenId/strikes'),
+        headers: ApiConfig.getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      }
+      return {'strikes': 0, 'isBanned': false, 'message': ''};
+    } catch (e) {
+      print('❌ Error getting strikes: $e');
+      return {'strikes': 0, 'isBanned': false, 'message': ''};
+    }
+  }
+
+  /// Get fake complaints list (Admin only)
+  Future<Map<String, dynamic>> getFakeComplaints({int page = 1, int pageSize = 20}) async {
+    try {
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/complaints/fake-complaints?page=$page&pageSize=$pageSize'),
+        headers: ApiConfig.getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      }
+      return {'TotalCount': 0, 'FakeComplaints': []};
+    } catch (e) {
+      print('❌ Error getting fake complaints: $e');
+      return {'TotalCount': 0, 'FakeComplaints': []};
+    }
+  }
   /// Get complaint status history
   Future<List<ComplaintStatusHistory>> getComplaintStatusHistory(String complaintId) async {
     try {

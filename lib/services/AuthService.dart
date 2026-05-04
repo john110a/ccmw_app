@@ -609,7 +609,23 @@ class AuthService {
     _currentCompanyName = null;
     _currentContractorPerformance = null;
   }
+// Add to AuthService class
 
+  /// Get citizen's strike count and ban status
+  Future<Map<String, dynamic>> getCitizenStrikes() async {
+    final userId = await getUserId();
+    if (userId == null) return {'strikes': 0, 'isBanned': false};
+
+    final response = await http.get(
+      Uri.parse('${ApiConfig.baseUrl}/complaints/citizen/$userId/strikes'),
+      headers: ApiConfig.getHeaders(),
+    ).timeout(const Duration(seconds: 10));
+
+    if (response.statusCode == 200) {
+      return json.decode(response.body);
+    }
+    return {'strikes': 0, 'isBanned': false};
+  }
   // ========== GET AUTH TOKEN ==========
   Future<String?> getAuthToken() async {
     final prefs = await SharedPreferences.getInstance();

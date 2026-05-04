@@ -19,7 +19,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   bool _isLoading = false;
 
-  // ===== ADDED: Test connection method (optional) =====
+  // Test connection method
   Future<void> _testConnection() async {
     try {
       print('🔍 Testing connection to: ${ApiConfig.baseUrl}');
@@ -55,7 +55,50 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!mounted) return;
 
-      // ===== ADDED: Role-based navigation =====
+      // ===== CHECK IF USER IS BANNED =====
+      if (response['isBanned'] == true) {
+        String banMessage = response['banMessage'] ??
+            'Your account has been banned due to fake complaints.';
+
+        // Check if it's a temporary ban with expiry
+        if (response['banExpiryDate'] != null) {
+          final expiryDate = DateTime.parse(response['banExpiryDate']);
+          banMessage = 'Your account is banned until ${_formatDate(expiryDate)} due to fake complaints.';
+        }
+
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
+              children: [
+                Icon(Icons.gpp_bad, color: Colors.red, size: 28),
+                SizedBox(width: 12),
+                Text('Account Banned'),
+              ],
+            ),
+            content: Text(banMessage),
+            actions: [
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  // Optional: Navigate to appeal screen if you have one
+                  // Navigator.pushNamed(context, '/appeal-ban');
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+        return; // Don't proceed to dashboard
+      }
+
+      // ===== ROLE-BASED NAVIGATION =====
       String route;
       switch (response['userType']) {
         case 'System_Admin':
@@ -94,6 +137,10 @@ class _LoginScreenState extends State<LoginScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.day}/${date.month}/${date.year}';
   }
 
   @override
@@ -330,7 +377,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 16),
 
-                // ===== ADDED: Test connection button (optional) =====
+                // Test connection button
                 ElevatedButton(
                   onPressed: _testConnection,
                   child: const Text('Test Connection'),

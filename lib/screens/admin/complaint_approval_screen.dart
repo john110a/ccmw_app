@@ -1,6 +1,7 @@
 // lib/screens/admin/complaint_approval_screen.dart
 import 'package:flutter/material.dart';
 import '../../services/assignment_service.dart';
+import '../../services/complaint_service.dart';
 import '../../services/AuthService.dart';
 import '../../models/complaint_model.dart';
 
@@ -13,6 +14,7 @@ class ComplaintApprovalScreen extends StatefulWidget {
 
 class _ComplaintApprovalScreenState extends State<ComplaintApprovalScreen> {
   final AssignmentService _assignmentService = AssignmentService();
+  final ComplaintService _complaintService = ComplaintService();
   final AuthService _authService = AuthService();
 
   List<Complaint> _pendingComplaints = [];
@@ -29,12 +31,10 @@ class _ComplaintApprovalScreenState extends State<ComplaintApprovalScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Use the AssignmentService's getPendingComplaintsForApproval method
       final pendingComplaints = await _assignmentService.getPendingComplaintsForApproval();
 
       print('📡 Total pending complaints: ${pendingComplaints.length}');
 
-      // DEBUG: Print each complaint's ID
       for (var c in pendingComplaints) {
         print('   ID: "${c.complaintId}" - Title: ${c.title} - SubmissionStatus: ${c.submissionStatus}');
       }
@@ -235,6 +235,118 @@ class _ComplaintApprovalScreenState extends State<ComplaintApprovalScreen> {
             _processingIds.remove(complaintId);
           });
         }
+      }
+    }
+  }
+
+  // ===== ADDED: Mark as Fake method =====
+  Future<void> _markAsFake(String complaintId) async {
+    print('🔍 DEBUG - Mark as Fake complaintId: "$complaintId"');
+
+    if (complaintId.isEmpty) {
+      print('❌ ERROR: complaintId is empty! Cannot mark as fake.');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Error: Invalid complaint ID'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    if (_processingIds.contains(complaintId)) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber, color: Colors.purple, size: 28),
+            SizedBox(width: 12),
+            Text('Mark as Fake'),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('This will add 1 strike to the citizen.'),
+            SizedBox(height: 8),
+            Text(
+              '⚠️ Strike 1: Warning',
+              style: TextStyle(fontSize: 12, color: Colors.orange),
+            ),
+            Text(
+              '⚠️ Strike 2: 7-day ban',
+              style: TextStyle(fontSize: 12, color: Colors.red),
+            ),
+            Text(
+              '🚫 Strike 3: Permanent account ban',
+              style: TextStyle(fontSize: 12, color: Colors.red),
+            ),
+            SizedBox(height: 16),
+            Text('Are you sure you want to continue?', style: TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.purple,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: const Text('Mark as Fake'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() {
+      _processingIds.add(complaintId);
+    });
+
+    try {
+      final userId = await _authService.getUserId();
+      if (userId == null) {
+        throw Exception('User not logged in');
+      }
+
+      print('📡 Marking complaint as fake: $complaintId');
+      await _complaintService.markAsFake(complaintId, userId);
+
+      if (!mounted) return;
+
+      await _loadPendingComplaints();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Complaint marked as fake. Citizen strike increased.'),
+          backgroundColor: Colors.purple,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    } catch (e) {
+      print('❌ Error marking complaint as fake: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error marking as fake: $e'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _processingIds.remove(complaintId);
+        });
       }
     }
   }
@@ -463,8 +575,31 @@ class _ComplaintApprovalScreenState extends State<ComplaintApprovalScreen> {
                     ],
                   ),
                   const SizedBox(height: 16),
+                  // ===== UPDATED: Row with 3 buttons =====
                   Row(
                     children: [
+                      // Mark as Fake button (NEW)
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: isProcessing ? null : () => _markAsFake(complaint.complaintId),
+                          icon: isProcessing
+                              ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                              : const Icon(Icons.warning, size: 18),
+                          label: Text(isProcessing ? 'Processing...' : 'Fake'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.purple,
+                            side: const BorderSide(color: Colors.purple),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      // Reject button
                       Expanded(
                         child: OutlinedButton.icon(
                           onPressed: isProcessing ? null : () => _rejectComplaint(complaint.complaintId),
@@ -484,7 +619,8 @@ class _ComplaintApprovalScreenState extends State<ComplaintApprovalScreen> {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 8),
+                      // Approve button
                       Expanded(
                         child: ElevatedButton.icon(
                           onPressed: isProcessing ? null : () => _approveComplaint(complaint.complaintId),
