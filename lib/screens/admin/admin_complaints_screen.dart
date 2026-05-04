@@ -21,7 +21,18 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
   String _selectedFilter = 'All';
   String _selectedSort = 'Newest';
 
-  final List<String> _filterOptions = ['All', 'Submitted', 'Pending', 'Approved', 'Assigned', 'In Progress', 'Resolved', 'Closed', 'Rejected'];
+  final List<String> _filterOptions = [
+    'All',
+    'Submitted',
+    'Pending',
+    'Approved',
+    'Assigned',
+    'In Progress',
+    'Resolved',
+    'Closed',
+    'Rejected',
+    'No Zone', // ← NEW: filter for complaints missing a zone
+  ];
   final List<String> _sortOptions = ['Newest', 'Oldest', 'Priority', 'Upvotes'];
 
   @override
@@ -54,23 +65,40 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
     }
   }
 
+  // =====================================================
+  // STATS COUNTS FOR SUMMARY BAR
+  // =====================================================
+  int get _noZoneCount =>
+      _complaints.where((c) => c.zoneName == null || c.zoneName!.isEmpty).length;
+
+  int get _pendingApprovalCount =>
+      _complaints.where((c) => c.currentStatus == 0).length;
+
+  // =====================================================
+  // FILTER + SORT
+  // =====================================================
   List<Complaint> get _filteredAndSortedComplaints {
-    // First filter
     List<Complaint> filtered = _complaints.where((complaint) {
-      // Search filter
+      // Search
       final matchesSearch = _searchQuery.isEmpty ||
           complaint.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           complaint.description.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           (complaint.complaintNumber?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false);
 
-      // Status filter
-      final matchesFilter = _selectedFilter == 'All' ||
-          _getStatusText(complaint.currentStatus) == _selectedFilter;
+      // Status / special filters
+      bool matchesFilter;
+      if (_selectedFilter == 'All') {
+        matchesFilter = true;
+      } else if (_selectedFilter == 'No Zone') {
+        matchesFilter = complaint.zoneName == null || complaint.zoneName!.isEmpty;
+      } else {
+        matchesFilter = _getStatusText(complaint.currentStatus) == _selectedFilter;
+      }
 
       return matchesSearch && matchesFilter;
     }).toList();
 
-    // Then sort
+    // Sort
     switch (_selectedSort) {
       case 'Newest':
         filtered.sort((a, b) => b.createdAt.compareTo(a.createdAt));
@@ -80,10 +108,8 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
         break;
       case 'Priority':
         filtered.sort((a, b) {
-          final priorityOrder = {'High': 0, 'Medium': 1, 'Low': 2};
-          final aPriority = priorityOrder[a.priority] ?? 3;
-          final bPriority = priorityOrder[b.priority] ?? 3;
-          return aPriority.compareTo(bPriority);
+          final priorityOrder = {'Critical': 0, 'High': 1, 'Medium': 2, 'Low': 3};
+          return (priorityOrder[a.priority] ?? 4).compareTo(priorityOrder[b.priority] ?? 4);
         });
         break;
       case 'Upvotes':
@@ -94,6 +120,9 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
     return filtered;
   }
 
+  // =====================================================
+  // HELPERS
+  // =====================================================
   String _getStatusText(int status) {
     switch (status) {
       case 0: return 'Submitted';
@@ -124,6 +153,7 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
 
   Color _getPriorityColor(String priority) {
     switch (priority) {
+      case 'Critical': return Colors.deepOrange;
       case 'High': return Colors.red;
       case 'Medium': return Colors.orange;
       case 'Low': return Colors.green;
@@ -131,6 +161,21 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
     }
   }
 
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final difference = now.difference(date);
+    if (difference.inDays > 0) return '${difference.inDays}d ago';
+    if (difference.inHours > 0) return '${difference.inHours}h ago';
+    if (difference.inMinutes > 0) return '${difference.inMinutes}m ago';
+    return 'Just now';
+  }
+
+  bool _hasZone(Complaint complaint) =>
+      complaint.zoneName != null && complaint.zoneName!.isNotEmpty;
+
+  // =====================================================
+  // COMPLAINT DETAIL BOTTOM SHEET
+  // =====================================================
   void _showComplaintDetails(Complaint complaint) {
     showModalBottomSheet(
       context: context,
@@ -175,11 +220,40 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
                 ),
                 const Divider(height: 24),
 
-                // Status and Priority
                 Expanded(
                   child: ListView(
                     controller: scrollController,
                     children: [
+                      // ── Zone warning banner ──────────────────────────
+                      if (!_hasZone(complaint)) ...[
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.amber[50],
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.amber.shade300),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.warning_amber_rounded,
+                                  color: Colors.amber[800], size: 20),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'No zone assigned — this complaint will not appear on the map until a zone is set.',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.amber[900],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+
+                      // ── Details ──────────────────────────────────────
                       _buildDetailRow(
                         'Status',
                         _getStatusText(complaint.currentStatus),
@@ -194,44 +268,34 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
                       const SizedBox(height: 12),
                       _buildDetailRow(
                         'Category',
-                        complaint.categoryName ?? 'General', // ✅ FIXED
+                        complaint.categoryName ?? 'Not set',
                         color: Colors.teal,
                       ),
                       const SizedBox(height: 12),
                       _buildDetailRow(
                         'Zone',
-                        complaint.zoneName ?? 'Unknown', // ✅ FIXED
-                        color: Colors.blue,
+                        _hasZone(complaint)
+                            ? complaint.zoneName!
+                            : '⚠ No zone assigned',
+                        color: _hasZone(complaint) ? Colors.blue : Colors.amber[800],
                       ),
                       const SizedBox(height: 12),
                       _buildDetailRow(
                         'Department',
-                        complaint.departmentName ?? 'General', // ✅ FIXED
+                        complaint.departmentName ?? 'Not set',
                         color: Colors.purple,
                       ),
                       const SizedBox(height: 12),
-                      _buildDetailRow(
-                        'Location',
-                        complaint.locationAddress,
-                      ),
+                      _buildDetailRow('Location', complaint.locationAddress),
                       const SizedBox(height: 12),
-                      _buildDetailRow(
-                        'Created',
-                        _formatDate(complaint.createdAt),
-                      ),
+                      _buildDetailRow('Created', _formatDate(complaint.createdAt)),
                       const SizedBox(height: 12),
-                      _buildDetailRow(
-                        'Upvotes',
-                        '${complaint.upvoteCount}',
-                      ),
+                      _buildDetailRow('Upvotes', '${complaint.upvoteCount}'),
                       const SizedBox(height: 12),
-                      _buildDetailRow(
-                        'Views',
-                        '${complaint.viewCount}',
-                      ),
+                      _buildDetailRow('Views', '${complaint.viewCount}'),
                       const SizedBox(height: 16),
 
-                      // Description
+                      // ── Description ──────────────────────────────────
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
@@ -244,32 +308,27 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
                             const Text(
                               'Description',
                               style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                              ),
+                                  fontSize: 14, fontWeight: FontWeight.w600),
                             ),
                             const SizedBox(height: 8),
-                            Text(
-                              complaint.description,
-                              style: const TextStyle(fontSize: 14),
-                            ),
+                            Text(complaint.description,
+                                style: const TextStyle(fontSize: 14)),
                           ],
                         ),
                       ),
                       const SizedBox(height: 20),
 
-                      // Action Buttons
+                      // ── Action Buttons ────────────────────────────────
                       Row(
                         children: [
                           Expanded(
                             child: OutlinedButton.icon(
-                              onPressed: () {
-                                Navigator.pop(context);
-                              },
+                              onPressed: () => Navigator.pop(context),
                               icon: const Icon(Icons.edit),
                               label: const Text('Edit'),
                               style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                padding:
+                                const EdgeInsets.symmetric(vertical: 12),
                               ),
                             ),
                           ),
@@ -281,7 +340,9 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
                                 Navigator.pushNamed(
                                   context,
                                   '/complaint-routing',
-                                  arguments: {'complaintId': complaint.complaintId},
+                                  arguments: {
+                                    'complaintId': complaint.complaintId
+                                  },
                                 );
                               },
                               icon: const Icon(Icons.assignment),
@@ -289,7 +350,8 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.blue,
                                 foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                padding:
+                                const EdgeInsets.symmetric(vertical: 12),
                               ),
                             ),
                           ),
@@ -312,44 +374,24 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
       children: [
         SizedBox(
           width: 80,
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              color: Colors.grey[600],
-            ),
-          ),
+          child: Text(label,
+              style: TextStyle(fontSize: 13, color: Colors.grey[600])),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: Text(
             value,
             style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: color,
-            ),
+                fontSize: 13, fontWeight: FontWeight.w500, color: color),
           ),
         ),
       ],
     );
   }
 
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final difference = now.difference(date);
-
-    if (difference.inDays > 0) {
-      return '${difference.inDays}d ago';
-    } else if (difference.inHours > 0) {
-      return '${difference.inHours}h ago';
-    } else if (difference.inMinutes > 0) {
-      return '${difference.inMinutes}m ago';
-    } else {
-      return 'Just now';
-    }
-  }
-
+  // =====================================================
+  // BUILD
+  // =====================================================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -360,9 +402,7 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
         title: Text(
           'All Complaints',
           style: TextStyle(
-            color: Colors.grey[900],
-            fontWeight: FontWeight.w600,
-          ),
+              color: Colors.grey[900], fontWeight: FontWeight.w600),
         ),
         actions: [
           IconButton(
@@ -380,90 +420,78 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _errorMessage != null
-          ? Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.red),
-              const SizedBox(height: 16),
-              Text(
-                'Error loading complaints',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[800]),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _errorMessage!,
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton.icon(
-                onPressed: _loadComplaints,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Try Again'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                ),
-              ),
-            ],
-          ),
-        ),
-      )
+          ? _buildErrorState()
           : Column(
         children: [
-          // Search Bar
+          // ── Summary alert bar ──────────────────────────
+          if (_noZoneCount > 0 || _pendingApprovalCount > 0)
+            _buildSummaryBar(),
+
+          // ── Search ─────────────────────────────────────
           Container(
             padding: const EdgeInsets.all(16),
             color: Colors.white,
             child: TextField(
               decoration: InputDecoration(
                 hintText: 'Search complaints...',
-                prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                prefixIcon:
+                const Icon(Icons.search, color: Colors.grey),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                   borderSide: BorderSide.none,
                 ),
                 filled: true,
                 fillColor: Colors.grey[100],
-                contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                contentPadding:
+                const EdgeInsets.symmetric(vertical: 0),
               ),
-              onChanged: (value) {
-                setState(() {
-                  _searchQuery = value;
-                });
-              },
+              onChanged: (value) =>
+                  setState(() => _searchQuery = value),
             ),
           ),
 
-          // Filter Chips
+          // ── Filter chips ───────────────────────────────
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(
+                horizontal: 16, vertical: 8),
             color: Colors.white,
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: _filterOptions.map((filter) {
                   final isSelected = _selectedFilter == filter;
+                  final isNoZone = filter == 'No Zone';
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: FilterChip(
-                      label: Text(filter),
+                      label: Text(
+                        isNoZone && _noZoneCount > 0
+                            ? 'No Zone ($_noZoneCount)'
+                            : filter,
+                      ),
                       selected: isSelected,
-                      onSelected: (selected) {
-                        setState(() {
-                          _selectedFilter = filter;
-                        });
-                      },
-                      backgroundColor: Colors.grey[100],
-                      selectedColor: Colors.blue[100],
-                      checkmarkColor: Colors.blue,
+                      onSelected: (_) =>
+                          setState(() => _selectedFilter = filter),
+                      backgroundColor: isNoZone
+                          ? Colors.amber[50]
+                          : Colors.grey[100],
+                      selectedColor: isNoZone
+                          ? Colors.amber[100]
+                          : Colors.blue[100],
+                      checkmarkColor:
+                      isNoZone ? Colors.amber[800] : Colors.blue,
                       labelStyle: TextStyle(
-                        color: isSelected ? Colors.blue : Colors.grey[800],
-                        fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                        color: isSelected
+                            ? (isNoZone
+                            ? Colors.amber[800]
+                            : Colors.blue)
+                            : (isNoZone
+                            ? Colors.amber[700]
+                            : Colors.grey[800]),
+                        fontWeight: isSelected
+                            ? FontWeight.w600
+                            : FontWeight.normal,
+                        fontSize: 12,
                       ),
                     ),
                   );
@@ -472,46 +500,40 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
             ),
           ),
 
-          // Sort Bar
+          // ── Sort bar ───────────────────────────────────
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(
+                horizontal: 16, vertical: 8),
             color: Colors.grey[50],
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '${_filteredAndSortedComplaints.length} complaints',
+                  '${_filteredAndSortedComplaints.length} of ${_complaints.length} complaints',
                   style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.grey[600],
-                  ),
+                      fontSize: 13, color: Colors.grey[600]),
                 ),
                 Row(
                   children: [
-                    const Text(
-                      'Sort by: ',
-                      style: TextStyle(fontSize: 13, color: Colors.grey),
-                    ),
+                    const Text('Sort by: ',
+                        style: TextStyle(
+                            fontSize: 13, color: Colors.grey)),
                     DropdownButton<String>(
                       value: _selectedSort,
-                      items: _sortOptions.map((option) {
-                        return DropdownMenuItem(
-                          value: option,
-                          child: Text(
-                            option,
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                        );
-                      }).toList(),
-                      onChanged: (value) {
-                        if (value != null) {
-                          setState(() {
-                            _selectedSort = value;
-                          });
-                        }
+                      items: _sortOptions
+                          .map((o) => DropdownMenuItem(
+                          value: o,
+                          child: Text(o,
+                              style: const TextStyle(
+                                  fontSize: 13))))
+                          .toList(),
+                      onChanged: (v) {
+                        if (v != null)
+                          setState(() => _selectedSort = v);
                       },
                       underline: const SizedBox(),
-                      icon: const Icon(Icons.arrow_drop_down, size: 18),
+                      icon: const Icon(Icons.arrow_drop_down,
+                          size: 18),
                     ),
                   ],
                 ),
@@ -519,46 +541,19 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
             ),
           ),
 
-          // Complaints List
+          // ── List ───────────────────────────────────────
           Expanded(
             child: _filteredAndSortedComplaints.isEmpty
-                ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.inbox,
-                    size: 64,
-                    color: Colors.grey[400],
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No complaints found',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey[800],
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Try adjusting your filters',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ],
-              ),
-            )
+                ? _buildEmptyState()
                 : RefreshIndicator(
               onRefresh: _loadComplaints,
               child: ListView.builder(
                 padding: const EdgeInsets.all(16),
-                itemCount: _filteredAndSortedComplaints.length,
+                itemCount:
+                _filteredAndSortedComplaints.length,
                 itemBuilder: (context, index) {
-                  final complaint = _filteredAndSortedComplaints[index];
-                  return _buildComplaintCard(complaint);
+                  return _buildComplaintCard(
+                      _filteredAndSortedComplaints[index]);
                 },
               ),
             ),
@@ -568,12 +563,82 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
     );
   }
 
+  // =====================================================
+  // SUMMARY ALERT BAR
+  // =====================================================
+  Widget _buildSummaryBar() {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: [
+          if (_pendingApprovalCount > 0) ...[
+            _buildSummaryChip(
+              icon: Icons.pending_actions,
+              label: '$_pendingApprovalCount pending approval',
+              color: Colors.blue,
+              onTap: () => setState(() => _selectedFilter = 'Submitted'),
+            ),
+            const SizedBox(width: 8),
+          ],
+          if (_noZoneCount > 0)
+            _buildSummaryChip(
+              icon: Icons.location_off,
+              label: '$_noZoneCount without zone',
+              color: Colors.amber[700]!,
+              onTap: () => setState(() => _selectedFilter = 'No Zone'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryChip({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 6),
+            Text(label,
+                style: TextStyle(
+                    fontSize: 12,
+                    color: color,
+                    fontWeight: FontWeight.w600)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // =====================================================
+  // COMPLAINT CARD
+  // =====================================================
   Widget _buildComplaintCard(Complaint complaint) {
+    final hasZone = _hasZone(complaint);
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 2,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
+        // Amber border for complaints without a zone
+        side: hasZone
+            ? BorderSide.none
+            : BorderSide(color: Colors.amber.shade300, width: 1),
       ),
       child: InkWell(
         onTap: () => _showComplaintDetails(complaint),
@@ -583,7 +648,7 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header Row
+              // ── Header row ──────────────────────────────────────
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -603,18 +668,18 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
                           child: Text(
                             complaint.title,
                             style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
+                                fontSize: 16, fontWeight: FontWeight.w600),
                           ),
                         ),
                       ],
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: _getStatusColor(complaint.currentStatus).withOpacity(0.1),
+                      color: _getStatusColor(complaint.currentStatus)
+                          .withOpacity(0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -628,116 +693,106 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
 
-              // Description
+              // ── Description ──────────────────────────────────────
               Text(
                 complaint.description,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey[600],
-                ),
+                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
 
-              // Meta Info - UPDATED with Category and Zone
+              // ── Chips row ────────────────────────────────────────
               Wrap(
-                spacing: 8,
+                spacing: 6,
                 runSpacing: 6,
                 children: [
                   // Priority
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: _getPriorityColor(complaint.priority).withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      complaint.priority,
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: _getPriorityColor(complaint.priority),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                  _buildChip(
+                    complaint.priority,
+                    _getPriorityColor(complaint.priority).withOpacity(0.12),
+                    _getPriorityColor(complaint.priority),
                   ),
-                  // Category - ✅ UPDATED
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[200],
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      complaint.categoryName ?? 'General',
-                      style: const TextStyle(fontSize: 10),
-                    ),
+                  // Category
+                  _buildChip(
+                    complaint.categoryName ?? 'No Category',
+                    Colors.grey[200]!,
+                    Colors.grey[700]!,
                   ),
-                  // Zone - ✅ UPDATED
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.blue[50],
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      complaint.zoneName ?? 'Unknown Zone',
-                      style: TextStyle(fontSize: 10, color: Colors.blue[700]),
-                    ),
+                  // Zone chip — amber if missing
+                  _buildChip(
+                    hasZone ? complaint.zoneName! : '⚠ No Zone',
+                    hasZone ? Colors.blue[50]! : Colors.amber[50]!,
+                    hasZone ? Colors.blue[700]! : Colors.amber[800]!,
                   ),
-                  // Complaint Number
+                  // Complaint number
                   Text(
                     complaint.complaintNumber ?? 'No #',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey[500],
-                    ),
+                    style:
+                    TextStyle(fontSize: 11, color: Colors.grey[500]),
                   ),
                 ],
               ),
+              const SizedBox(height: 10),
 
-              const SizedBox(height: 12),
+              // ── No-zone warning banner ───────────────────────────
+              if (!hasZone) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: Colors.amber[50],
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.amber.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.location_off,
+                          size: 13, color: Colors.amber[800]),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'No zone assigned — won\'t appear on map',
+                          style: TextStyle(
+                              fontSize: 11, color: Colors.amber[800]),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
 
-              // Stats Row
+              // ── Stats row ────────────────────────────────────────
               Row(
                 children: [
-                  // Upvotes
-                  Row(
-                    children: [
-                      const Icon(Icons.thumb_up, size: 14, color: Colors.grey),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${complaint.upvoteCount}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(width: 16),
-                  // Time
-                  Row(
-                    children: [
-                      const Icon(Icons.access_time, size: 14, color: Colors.grey),
-                      const SizedBox(width: 4),
-                      Text(
-                        _formatDate(complaint.createdAt),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
+                  Icon(Icons.thumb_up, size: 13, color: Colors.grey[400]),
+                  const SizedBox(width: 4),
+                  Text('${complaint.upvoteCount}',
+                      style: TextStyle(
+                          fontSize: 12, color: Colors.grey[600])),
+                  const SizedBox(width: 14),
+                  Icon(Icons.remove_red_eye,
+                      size: 13, color: Colors.grey[400]),
+                  const SizedBox(width: 4),
+                  Text('${complaint.viewCount}',
+                      style: TextStyle(
+                          fontSize: 12, color: Colors.grey[600])),
+                  const SizedBox(width: 14),
+                  Icon(Icons.access_time,
+                      size: 13, color: Colors.grey[400]),
+                  const SizedBox(width: 4),
+                  Text(_formatDate(complaint.createdAt),
+                      style: TextStyle(
+                          fontSize: 12, color: Colors.grey[600])),
                 ],
               ),
 
-              // Assignment Info (if assigned)
+              // ── Assigned banner ──────────────────────────────────
               if (complaint.assignedToId != null) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
@@ -746,15 +801,14 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.person, size: 14, color: Colors.blue),
+                      const Icon(Icons.person, size: 13, color: Colors.blue),
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
-                          complaint.assignedToName ?? 'Assigned to staff member',
+                          complaint.assignedToName ??
+                              'Assigned to staff member',
                           style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.blue[900],
-                          ),
+                              fontSize: 12, color: Colors.blue[900]),
                         ),
                       ),
                     ],
@@ -768,6 +822,84 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
     );
   }
 
+  Widget _buildChip(String label, Color bg, Color textColor) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(label,
+          style: TextStyle(
+              fontSize: 10,
+              color: textColor,
+              fontWeight: FontWeight.w500)),
+    );
+  }
+
+  // =====================================================
+  // EMPTY / ERROR STATES
+  // =====================================================
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.inbox, size: 64, color: Colors.grey[400]),
+          const SizedBox(height: 16),
+          Text('No complaints found',
+              style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey[800])),
+          const SizedBox(height: 8),
+          Text('Try adjusting your filters',
+              style: TextStyle(fontSize: 14, color: Colors.grey[600])),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, size: 48, color: Colors.red),
+            const SizedBox(height: 16),
+            Text('Error loading complaints',
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey[800])),
+            const SizedBox(height: 8),
+            Text(_errorMessage!,
+                textAlign: TextAlign.center,
+                style:
+                TextStyle(fontSize: 14, color: Colors.grey[600])),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _loadComplaints,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Try Again'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 24, vertical: 12),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // =====================================================
+  // FILTER DIALOG
+  // =====================================================
   void _showFilterDialog() {
     showDialog(
       context: context,
@@ -775,19 +907,31 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
         title: const Text('Filter Complaints'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Status'),
+            const Text('By Status',
+                style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey)),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
+              runSpacing: 6,
               children: _filterOptions.map((filter) {
+                final isNoZone = filter == 'No Zone';
                 return ChoiceChip(
-                  label: Text(filter),
+                  label: Text(
+                    isNoZone && _noZoneCount > 0
+                        ? 'No Zone ($_noZoneCount)'
+                        : filter,
+                    style: const TextStyle(fontSize: 12),
+                  ),
                   selected: _selectedFilter == filter,
-                  onSelected: (selected) {
-                    setState(() {
-                      _selectedFilter = filter;
-                    });
+                  selectedColor:
+                  isNoZone ? Colors.amber[100] : Colors.blue[100],
+                  onSelected: (_) {
+                    setState(() => _selectedFilter = filter);
                     Navigator.pop(context);
                   },
                 );
@@ -798,9 +942,7 @@ class _AdminComplaintsScreenState extends State<AdminComplaintsScreen> {
         actions: [
           TextButton(
             onPressed: () {
-              setState(() {
-                _selectedFilter = 'All';
-              });
+              setState(() => _selectedFilter = 'All');
               Navigator.pop(context);
             },
             child: const Text('Clear'),

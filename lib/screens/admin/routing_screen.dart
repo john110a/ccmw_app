@@ -1,3 +1,4 @@
+// lib/screens/admin/complaint_routing_screen.dart
 import 'package:flutter/material.dart';
 import '../../services/assignment_service.dart';
 import '../../services/staff_service.dart';
@@ -71,7 +72,7 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
       if (_userRole == 'System_Admin') {
         print('📡 System Admin - Loading ALL complaints and staff');
         final results = await Future.wait([
-          _assignmentService.getAllComplaintsForRouting(),
+          _assignmentService.getComplaintsReadyForAssignment(), // ✅ FIXED
           _staffService.getAvailableStaff(),
         ]);
         complaints = results[0] as List<Complaint>;
@@ -82,7 +83,7 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
         }
         print('📡 Department Admin - Loading complaints and staff for: $_userDepartmentName');
         final results = await Future.wait([
-          _assignmentService.getComplaints(departmentId: _userDepartmentId),
+          _assignmentService.getComplaintsByDepartmentForRouting(_userDepartmentId!), // ✅ FIXED
           _staffService.getAvailableStaff(_userDepartmentId),
         ]);
         complaints = results[0] as List<Complaint>;
@@ -329,7 +330,11 @@ class _ComplaintRoutingScreenState extends State<ComplaintRoutingScreen> {
     if (reason != null && reason.isNotEmpty) {
       try {
         setState(() => _isLoading = true);
-        await _assignmentService.rejectComplaint(complaint.complaintId, reason);
+        await _assignmentService.rejectComplaint(
+          complaintId: complaint.complaintId,
+          reason: reason,
+          rejectedById: await _authService.getUserId(),
+        );
         if (!mounted) return;
 
         setState(() {

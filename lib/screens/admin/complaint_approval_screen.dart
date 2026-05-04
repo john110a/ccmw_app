@@ -1,6 +1,7 @@
 // lib/screens/admin/complaint_approval_screen.dart
 import 'package:flutter/material.dart';
-import '../../services/complaint_service.dart';
+import '../../services/assignment_service.dart';
+import '../../services/AuthService.dart';
 import '../../models/complaint_model.dart';
 
 class ComplaintApprovalScreen extends StatefulWidget {
@@ -11,7 +12,8 @@ class ComplaintApprovalScreen extends StatefulWidget {
 }
 
 class _ComplaintApprovalScreenState extends State<ComplaintApprovalScreen> {
-  final ComplaintService _complaintService = ComplaintService();
+  final AssignmentService _assignmentService = AssignmentService();
+  final AuthService _authService = AuthService();
 
   List<Complaint> _pendingComplaints = [];
   bool _isLoading = true;
@@ -27,27 +29,18 @@ class _ComplaintApprovalScreenState extends State<ComplaintApprovalScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final allComplaints = await _complaintService.getAllComplaints();
+      // Use the AssignmentService's getPendingComplaintsForApproval method
+      final pendingComplaints = await _assignmentService.getPendingComplaintsForApproval();
 
-      print('📡 Total complaints: ${allComplaints.length}');
+      print('📡 Total pending complaints: ${pendingComplaints.length}');
 
       // DEBUG: Print each complaint's ID
-      for (var c in allComplaints) {
-        print('   ID: "${c.complaintId}" - Title: ${c.title} - Status: ${c.currentStatus}');
-      }
-
-      _pendingComplaints = allComplaints
-          .where((c) =>  c.submissionStatus == 0)
-          .toList();
-
-      print('✅ Pending approvals: ${_pendingComplaints.length}');
-
-      // DEBUG: Print pending IDs
-      for (var c in _pendingComplaints) {
-        print('   PENDING ID: "${c.complaintId}" - Title: ${c.title}');
+      for (var c in pendingComplaints) {
+        print('   ID: "${c.complaintId}" - Title: ${c.title} - SubmissionStatus: ${c.submissionStatus}');
       }
 
       setState(() {
+        _pendingComplaints = pendingComplaints;
         _isLoading = false;
       });
     } catch (e) {
@@ -59,9 +52,7 @@ class _ComplaintApprovalScreenState extends State<ComplaintApprovalScreen> {
   }
 
   Future<void> _approveComplaint(String complaintId) async {
-    print('🔍 DEBUG - Received complaintId: "$complaintId"');
-    print('🔍 DEBUG - complaintId length: ${complaintId.length}');
-    print('🔍 DEBUG - is empty? ${complaintId.isEmpty}');
+    print('🔍 DEBUG - Approving complaintId: "$complaintId"');
 
     if (complaintId.isEmpty) {
       print('❌ ERROR: complaintId is empty! Cannot approve.');
@@ -78,8 +69,17 @@ class _ComplaintApprovalScreenState extends State<ComplaintApprovalScreen> {
     });
 
     try {
+      final userId = await _authService.getUserId();
+      if (userId == null) {
+        throw Exception('User not logged in');
+      }
+
       print('📡 Approving complaint: $complaintId');
-      await _complaintService.updateStatus(complaintId, 'Approved');
+      await _assignmentService.approveComplaint(
+        complaintId: complaintId,
+        approvedById: userId,
+        notes: 'Approved by admin',
+      );
 
       if (!mounted) return;
 
@@ -132,6 +132,7 @@ class _ComplaintApprovalScreenState extends State<ComplaintApprovalScreen> {
     final shouldReject = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Row(
           children: [
             Icon(Icons.warning_amber, color: Colors.red, size: 28),
@@ -180,6 +181,7 @@ class _ComplaintApprovalScreenState extends State<ComplaintApprovalScreen> {
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
             child: const Text('Reject'),
           ),
@@ -193,10 +195,16 @@ class _ComplaintApprovalScreenState extends State<ComplaintApprovalScreen> {
       });
 
       try {
+        final userId = await _authService.getUserId();
+
         print('📡 Rejecting complaint: $complaintId');
         print('📡 Reason: ${reasonController.text}');
 
-        await _complaintService.updateStatus(complaintId, 'Rejected');
+        await _assignmentService.rejectComplaint(
+          complaintId: complaintId,
+          reason: reasonController.text,
+          rejectedById: userId,
+        );
 
         if (!mounted) return;
 
@@ -234,8 +242,12 @@ class _ComplaintApprovalScreenState extends State<ComplaintApprovalScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text('Pending Approvals'),
+        title: const Text(
+          'Pending Approvals',
+          style: TextStyle(color: Colors.grey),
+        ),
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
@@ -250,13 +262,47 @@ class _ComplaintApprovalScreenState extends State<ComplaintApprovalScreen> {
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 60,
+              height: 60,
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Padding(
+                padding: EdgeInsets.all(12),
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Loading pending approvals...',
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      )
           : _pendingComplaints.isEmpty
           ? Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.check_circle, size: 64, color: Colors.green[300]),
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.check_circle, size: 40, color: Colors.green[400]),
+            ),
             const SizedBox(height: 16),
             const Text(
               'No pending approvals',
@@ -267,11 +313,17 @@ class _ComplaintApprovalScreenState extends State<ComplaintApprovalScreen> {
               'All complaints have been reviewed',
               style: TextStyle(fontSize: 14, color: Colors.grey[600]),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 24),
             ElevatedButton.icon(
               onPressed: _loadPendingComplaints,
               icon: const Icon(Icons.refresh),
               label: const Text('Refresh'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
             ),
           ],
         ),
@@ -303,6 +355,7 @@ class _ComplaintApprovalScreenState extends State<ComplaintApprovalScreen> {
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
+                            color: Colors.grey,
                           ),
                         ),
                       ),
@@ -427,6 +480,7 @@ class _ComplaintApprovalScreenState extends State<ComplaintApprovalScreen> {
                             foregroundColor: Colors.red,
                             side: const BorderSide(color: Colors.red),
                             padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                           ),
                         ),
                       ),
@@ -449,6 +503,7 @@ class _ComplaintApprovalScreenState extends State<ComplaintApprovalScreen> {
                             backgroundColor: Colors.green,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                           ),
                         ),
                       ),

@@ -5,8 +5,11 @@ import 'package:http/http.dart' as http;
 import '../models/complaint_model.dart';
 import '../models/staff_profile_model.dart';
 import 'api_config.dart';
+import 'AuthService.dart';
 
 class AssignmentService {
+
+  final AuthService _authService = AuthService();
 
   // =====================================================
   // 1. ASSIGNMENT OPERATIONS
@@ -48,7 +51,7 @@ class AssignmentService {
   }
 
   /// Assign complaint using individual parameters (convenience method)
-  Future<void> assignComplaintToStaff({
+  Future<Map<String, dynamic>> assignComplaintToStaff({
     required String complaintId,
     required String staffId,
     required String assignedById,
@@ -61,11 +64,11 @@ class AssignmentService {
       'assignmentNotes': notes ?? 'Assigned by admin',
       'expectedCompletionDate': DateTime.now().add(const Duration(days: 3)).toIso8601String(),
     };
-    await assignComplaint(assignmentData);
+    return await assignComplaint(assignmentData);
   }
 
   /// Reassign complaint to different staff
-  Future<void> reassignComplaint({
+  Future<Map<String, dynamic>> reassignComplaint({
     required String complaintId,
     required String newStaffId,
     required String assignedById,
@@ -74,13 +77,14 @@ class AssignmentService {
     try {
       final reassignData = {
         'complaintId': complaintId,
-        'assignedToId': newStaffId,
+        'newStaffId': newStaffId,  // Note: Using newStaffId (matches backend)
         'assignedById': assignedById,
-        'assignmentNotes': notes ?? 'Reassigned by admin',
+        'notes': notes ?? 'Reassigned by admin',
         'expectedCompletionDate': DateTime.now().add(const Duration(days: 3)).toIso8601String(),
       };
 
       print('📡 Reassigning complaint: $complaintId to staff: $newStaffId');
+      print('📍 URL: ${ApiConfig.baseUrl}/assignments/reassign');
 
       final response = await http.post(
         Uri.parse('${ApiConfig.baseUrl}/assignments/reassign'),
@@ -88,7 +92,11 @@ class AssignmentService {
         body: json.encode(reassignData),
       ).timeout(const Duration(seconds: 10));
 
-      if (response.statusCode != 200) {
+      print('📡 Response status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
         throw Exception('Failed to reassign complaint');
       }
     } catch (e) {
@@ -98,18 +106,27 @@ class AssignmentService {
   }
 
   /// Update assignment status (Accepted, Started, Completed)
-  Future<void> updateAssignmentStatus(String assignmentId, String status) async {
+  Future<Map<String, dynamic>> updateAssignmentStatus(String assignmentId, String status) async {
     try {
+      final requestData = {
+        'assignmentId': assignmentId,
+        'status': status,
+      };
+
+      print('📡 Updating assignment status: $assignmentId to $status');
+      print('📍 URL: ${ApiConfig.baseUrl}/assignments/update-status');
+
       final response = await http.post(
         Uri.parse('${ApiConfig.baseUrl}/assignments/update-status'),
         headers: ApiConfig.getHeaders(),
-        body: json.encode({
-          'assignmentId': assignmentId,
-          'status': status,
-        }),
+        body: json.encode(requestData),
       ).timeout(const Duration(seconds: 10));
 
-      if (response.statusCode != 200) {
+      print('📡 Response status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
         throw Exception('Failed to update assignment status');
       }
     } catch (e) {
@@ -136,7 +153,8 @@ class AssignmentService {
         throw Exception('Failed to load assignments');
       }
     } catch (e) {
-      throw Exception('Network error: $e');
+      print('❌ Error loading assignments: $e');
+      return [];
     }
   }
 
@@ -154,7 +172,8 @@ class AssignmentService {
         throw Exception('Failed to load assignment history');
       }
     } catch (e) {
-      throw Exception('Network error: $e');
+      print('❌ Error loading assignment history: $e');
+      return [];
     }
   }
 
@@ -192,145 +211,11 @@ class AssignmentService {
   }
 
   // =====================================================
-  // 3. GET COMPLAINTS (with filters)
+  // 3. GET COMPLAINTS
   // =====================================================
 
-  /// Get complaints filtered by department (for Department Admin)
-  Future<List<Complaint>> getComplaintsByDepartment(String departmentId) async {
-    try {
-      final url = '${ApiConfig.baseUrl}/complaints?departmentId=$departmentId';
-      print('📡 Fetching complaints for department: $departmentId');
-      print('📍 URL: $url');
-
-      final response = await http.get(
-        Uri.parse(url),
-        headers: ApiConfig.getHeaders(),
-      ).timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final dynamic data = json.decode(response.body);
-        List<dynamic> complaintsList = [];
-
-        if (data is Map && data.containsKey('Complaints')) {
-          complaintsList = data['Complaints'];
-        } else if (data is List) {
-          complaintsList = data;
-        }
-
-        print('✅ Found ${complaintsList.length} complaints for department');
-        return complaintsList.map((json) => Complaint.fromJson(json)).toList();
-      }
-      return [];
-    } catch (e) {
-      print('❌ Error loading complaints by department: $e');
-      return [];
-    }
-  }
-
-  /// Get complaints with multiple filters (status, zone, category, department, assigned)
-  Future<List<Complaint>> getComplaints({
-    int page = 1,
-    int pageSize = 100,
-    int? status,
-    String? zoneId,
-    String? categoryId,
-    String? departmentId,
-    bool? assigned,
-  }) async {
-    try {
-      String url = '${ApiConfig.baseUrl}/complaints?page=$page&pageSize=$pageSize';
-
-      if (status != null) {
-        url += '&status=$status';
-      }
-      if (zoneId != null) {
-        url += '&zoneId=$zoneId';
-      }
-      if (categoryId != null) {
-        url += '&categoryId=$categoryId';
-      }
-      if (departmentId != null) {
-        url += '&departmentId=$departmentId';
-      }
-      if (assigned != null) {
-        url += '&assigned=$assigned';
-      }
-
-      print('📡 Fetching complaints from: $url');
-
-      final response = await http.get(
-        Uri.parse(url),
-        headers: ApiConfig.getHeaders(),
-      ).timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final dynamic data = json.decode(response.body);
-        List<dynamic> complaintsList = [];
-
-        if (data is Map && data.containsKey('Complaints')) {
-          complaintsList = data['Complaints'];
-        } else if (data is List) {
-          complaintsList = data;
-        }
-
-        print('📊 Found ${complaintsList.length} complaints');
-        return complaintsList.map((json) => Complaint.fromJson(json)).toList();
-      }
-      return [];
-    } catch (e) {
-      print('❌ Error loading complaints: $e');
-      return [];
-    }
-  }
-
-  /// Get ALL complaints for routing (System Admin sees everything)
-  Future<List<Complaint>> getAllComplaintsForRouting() async {
-    try {
-      print('📡 Fetching ALL complaints for routing from: ${ApiConfig.baseUrl}/complaints');
-
-      final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/complaints'),
-        headers: ApiConfig.getHeaders(),
-      ).timeout(const Duration(seconds: 10));
-
-      print('📡 Response status: ${response.statusCode}');
-
-      if (response.statusCode == 200) {
-        final dynamic data = json.decode(response.body);
-        List<dynamic> complaintsList = [];
-
-        if (data is Map) {
-          if (data.containsKey('Complaints') && data['Complaints'] is List) {
-            complaintsList = data['Complaints'];
-            print('✅ Found ${complaintsList.length} complaints in "Complaints"');
-          } else if (data.containsKey('data') && data['data'] is List) {
-            complaintsList = data['data'];
-            print('✅ Found ${complaintsList.length} complaints in "data"');
-          }
-        } else if (data is List) {
-          complaintsList = data;
-          print('✅ Found ${complaintsList.length} complaints (direct list)');
-        }
-
-        print('📊 Total complaints found: ${complaintsList.length}');
-
-        if (complaintsList.isNotEmpty) {
-          print('🔍 First complaint keys: ${complaintsList.first.keys}');
-        }
-
-        return complaintsList.map((json) => Complaint.fromJson(json)).toList();
-      } else {
-        print('❌ Error: ${response.statusCode} - ${response.body}');
-        return [];
-      }
-    } catch (e) {
-      print('❌ Error loading all complaints: $e');
-      return [];
-    }
-  }
-
-  /// Get pending complaints ready for assignment (Approved & Unassigned)
-  Future<List<Complaint>> getPendingComplaints() async {
+  /// Get pending complaints for approval
+  Future<List<Complaint>> getPendingComplaintsForApproval() async {
     try {
       print('📡 Fetching pending complaints from: ${ApiConfig.baseUrl}/assignments/pending');
 
@@ -338,6 +223,8 @@ class AssignmentService {
         Uri.parse('${ApiConfig.baseUrl}/assignments/pending'),
         headers: ApiConfig.getHeaders(),
       ).timeout(const Duration(seconds: 10));
+
+      print('📡 Response status: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         final dynamic data = json.decode(response.body);
@@ -359,15 +246,79 @@ class AssignmentService {
     }
   }
 
+  /// Get complaints ready for assignment (Approved & Unassigned)
+  Future<List<Complaint>> getComplaintsReadyForAssignment() async {
+    try {
+      print('📡 Fetching complaints for routing from: ${ApiConfig.baseUrl}/assignments/complaints/all');
+
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/assignments/complaints/all'),
+        headers: ApiConfig.getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      print('📡 Response status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final dynamic data = json.decode(response.body);
+        List<dynamic> complaintsList = [];
+
+        if (data is List) {
+          complaintsList = data;
+        } else if (data is Map && data['data'] != null && data['data'] is List) {
+          complaintsList = data['data'];
+        }
+
+        print('📊 Found ${complaintsList.length} complaints ready for assignment');
+        return complaintsList.map((json) => Complaint.fromJson(json)).toList();
+      }
+      return [];
+    } catch (e) {
+      print('❌ Error loading complaints for assignment: $e');
+      return [];
+    }
+  }
+
+  /// Get complaints by department for routing
+  Future<List<Complaint>> getComplaintsByDepartmentForRouting(String departmentId) async {
+    try {
+      final url = '${ApiConfig.baseUrl}/assignments/complaints/department/$departmentId';
+      print('📡 Fetching complaints for department: $departmentId');
+      print('📍 URL: $url');
+
+      final response = await http.get(
+        Uri.parse(url),
+        headers: ApiConfig.getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      print('📡 Response status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final dynamic data = json.decode(response.body);
+        List<dynamic> complaintsList = [];
+
+        if (data is List) {
+          complaintsList = data;
+        } else if (data is Map && data['data'] != null && data['data'] is List) {
+          complaintsList = data['data'];
+        }
+
+        print('📊 Found ${complaintsList.length} complaints for department');
+        return complaintsList.map((json) => Complaint.fromJson(json)).toList();
+      }
+      return [];
+    } catch (e) {
+      print('❌ Error loading complaints by department: $e');
+      return [];
+    }
+  }
+
   // =====================================================
-  // 4. STAFF MANAGEMENT - UPDATED TO MATCH BACKEND ROUTES
+  // 4. STAFF MANAGEMENT
   // =====================================================
 
   /// Get available staff for assignment (optionally filtered by department)
-  /// This calls the AssignmentController's staff/available endpoint
   Future<List<StaffProfile>> getAvailableStaff([String? departmentId]) async {
     try {
-      // FIXED: Use the correct endpoint from AssignmentController
       String url = '${ApiConfig.baseUrl}/assignments/staff/available';
       if (departmentId != null && departmentId.isNotEmpty) {
         url += '?departmentId=$departmentId';
@@ -386,27 +337,12 @@ class AssignmentService {
         final dynamic data = json.decode(response.body);
         List<dynamic> staffList = [];
 
-        // Handle response format from AssignmentController
-        if (data is Map) {
-          // AssignmentController returns: { "TotalAvailable": 16, "Staff": [...] }
-          if (data.containsKey('Staff') && data['Staff'] is List) {
-            staffList = data['Staff'];
-            print('✅ Found ${staffList.length} staff in "Staff" array');
-          } else if (data.containsKey('data') && data['data'] is List) {
-            staffList = data['data'];
-            print('✅ Found ${staffList.length} staff in "data" array');
-          }
+        if (data is Map && data.containsKey('Staff') && data['Staff'] is List) {
+          staffList = data['Staff'];
+          print('✅ Found ${staffList.length} staff in "Staff" array');
         } else if (data is List) {
           staffList = data;
           print('✅ Found ${staffList.length} staff (direct list)');
-        }
-
-        // Filter by department if needed (backend already filters, but double-check)
-        if (departmentId != null && departmentId.isNotEmpty) {
-          staffList = staffList.where((staff) {
-            return staff['DepartmentId']?.toString() == departmentId;
-          }).toList();
-          print('📊 Filtered to ${staffList.length} staff in department $departmentId');
         }
 
         return staffList.map((json) => StaffProfile.fromJson(json)).toList();
@@ -420,51 +356,71 @@ class AssignmentService {
     }
   }
 
-  /// Get all staff (for debugging or admin purposes)
-  Future<List<StaffProfile>> getAllStaff() async {
+  // =====================================================
+  // 5. APPROVE & REJECT COMPLAINTS
+  // =====================================================
+
+  /// Approve a complaint
+  Future<Map<String, dynamic>> approveComplaint({
+    required String complaintId,
+    required String approvedById,
+    String? notes,
+  }) async {
     try {
-      final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/staff'),
+      print('📡 Approving complaint: $complaintId');
+      print('📍 URL: ${ApiConfig.baseUrl}/assignments/approve/$complaintId');
+
+      final response = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/assignments/approve/$complaintId'),
         headers: ApiConfig.getHeaders(),
+        body: json.encode({
+          'approvedById': approvedById,
+          'notes': notes ?? 'Approved by admin',
+        }),
       ).timeout(const Duration(seconds: 10));
 
+      print('📡 Response status: ${response.statusCode}');
+
       if (response.statusCode == 200) {
-        final dynamic data = json.decode(response.body);
-        List<dynamic> staffList = [];
-
-        if (data is Map && data.containsKey('Staff')) {
-          staffList = data['Staff'];
-        } else if (data is List) {
-          staffList = data;
-        }
-
-        return staffList.map((json) => StaffProfile.fromJson(json)).toList();
+        return json.decode(response.body);
+      } else {
+        final error = json.decode(response.body);
+        throw Exception(error['error'] ?? 'Failed to approve complaint');
       }
-      return [];
     } catch (e) {
-      print('❌ Error loading all staff: $e');
-      return [];
+      print('❌ Error approving complaint: $e');
+      throw Exception('Network error: $e');
     }
   }
 
-  // =====================================================
-  // 5. COMPLAINT REJECTION
-  // =====================================================
-
-  /// Reject a complaint with reason
-  Future<void> rejectComplaint(String complaintId, String reason) async {
+  /// Reject a complaint with reason - FIXED to match backend
+  Future<Map<String, dynamic>> rejectComplaint({
+    required String complaintId,
+    required String reason,
+    String? rejectedById,
+  }) async {
     try {
       print('📡 Rejecting complaint: $complaintId');
       print('📡 Reason: $reason');
+      print('📍 URL: ${ApiConfig.baseUrl}/assignments/reject/$complaintId');
 
       final response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/complaints/$complaintId/reject'),
+        Uri.parse('${ApiConfig.baseUrl}/assignments/reject/$complaintId'),
         headers: ApiConfig.getHeaders(),
-        body: json.encode({'reason': reason}),
+        body: json.encode({
+          'reason': reason,
+          'rejectedById': rejectedById,
+        }),
       ).timeout(const Duration(seconds: 10));
 
-      if (response.statusCode != 200) {
-        throw Exception('Failed to reject complaint');
+      print('📡 Response status: ${response.statusCode}');
+      print('📦 Response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        final error = json.decode(response.body);
+        throw Exception(error['error'] ?? 'Failed to reject complaint');
       }
     } catch (e) {
       print('❌ Error rejecting complaint: $e');
