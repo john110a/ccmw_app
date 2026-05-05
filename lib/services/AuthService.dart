@@ -1,4 +1,4 @@
-// lib/services/auth_service.dart - FULLY FIXED VERSION
+// lib/services/auth_service.dart - UPDATED with refreshDepartmentInfo method
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -140,7 +140,6 @@ class AuthService {
         print('✅ Staff login successful for: ${data['fullName'] ?? data['FullName']}');
         print('📋 UserType: ${data['UserType']}');
 
-        // Debug: Print staff info if available
         if (data['StaffInfo'] != null) {
           print('📋 StaffInfo: ${data['StaffInfo']}');
         }
@@ -206,7 +205,6 @@ class AuthService {
     _currentProfilePhoto = userData['profilePhotoUrl']?.toString() ??
         userData['ProfilePhotoUrl']?.toString();
 
-    // Save basic info
     await prefs.setString(_userIdKey, _currentUserId!);
     await prefs.setString(_userTypeKey, _currentUserType!);
     await prefs.setString(_userNameKey, _currentUserName!);
@@ -255,9 +253,7 @@ class AuthService {
       await prefs.setInt(_contributionScoreKey, stats['contribution_score'] ?? stats['ContributionScore'] ?? 0);
     }
 
-    // ===== STAFF PROFILE INFO (FIXED - Now handles both StaffInfo and AdminInfo) =====
-
-    // First, try to get from StaffInfo (for Field Staff)
+    // ===== STAFF PROFILE INFO =====
     if (userData.containsKey('StaffInfo') && userData['StaffInfo'] != null) {
       final staff = userData['StaffInfo'];
       print('📋 Saving StaffInfo: $staff');
@@ -282,7 +278,6 @@ class AuthService {
       print('✅ Saved StaffInfo - Department: $departmentName ($departmentId)');
     }
 
-    // Also check for AdminInfo (for Department Admin - contains department info)
     if (userData.containsKey('AdminInfo') && userData['AdminInfo'] != null) {
       final adminInfo = userData['AdminInfo'];
       print('📋 Saving AdminInfo: $adminInfo');
@@ -290,7 +285,6 @@ class AuthService {
       final adminDeptId = adminInfo['departmentId']?.toString() ?? adminInfo['DepartmentId']?.toString();
       final adminDeptName = adminInfo['departmentName']?.toString() ?? adminInfo['DepartmentName']?.toString();
 
-      // Only save if not already set or if this provides more info
       if (adminDeptId != null) {
         _departmentId = adminDeptId;
         await prefs.setString(_departmentIdKey, adminDeptId);
@@ -303,7 +297,6 @@ class AuthService {
       }
     }
 
-    // Also check StaffProfile (alternative location)
     if (userData.containsKey('StaffProfile') && userData['StaffProfile'] != null) {
       final staff = userData['StaffProfile'];
       print('📋 Saving StaffProfile: $staff');
@@ -361,11 +354,10 @@ class AuthService {
 
     _currentUser = User.fromJson(userData);
 
-    // Debug: Print final saved department info
     print('📱 FINAL SAVED - Department ID: $_departmentId, Department Name: $_departmentName');
   }
 
-  // ========== LOAD SAVED SESSION (FIXED) ==========
+  // ========== LOAD SAVED SESSION ==========
   Future<void> loadSavedSession() async {
     final prefs = await SharedPreferences.getInstance();
 
@@ -376,18 +368,65 @@ class AuthService {
     _currentUserPhone = prefs.getString(_userPhoneKey);
     _currentProfilePhoto = prefs.getString(_profilePhotoKey);
 
-    // Staff info
     _staffId = prefs.getString(_staffIdKey);
     _departmentId = prefs.getString(_departmentIdKey);
     _departmentName = prefs.getString(_departmentNameKey);
     _role = prefs.getString(_roleKey);
 
-    // Contractor data
     _currentContractorId = prefs.getString(_contractorIdKey);
     _currentCompanyName = prefs.getString(_companyNameKey);
 
     print('📱 Loaded session - Department ID: $_departmentId, Department Name: $_departmentName');
     print('📱 User Type: $_currentUserType, Staff ID: $_staffId');
+  }
+
+  // ========== REFRESH DEPARTMENT INFO (NEW METHOD) ==========
+  Future<void> refreshDepartmentInfo() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // First, try to get from StaffProfile if available
+    final staffId = await getStaffId();
+    if (staffId != null) {
+      try {
+        final response = await http.get(
+          Uri.parse('${ApiConfig.baseUrl}/staff/$staffId'),
+          headers: ApiConfig.getHeaders(),
+        ).timeout(const Duration(seconds: 5));
+
+        if (response.statusCode == 200) {
+          final staffData = json.decode(response.body);
+          final departmentId = staffData['departmentId']?.toString() ?? staffData['DepartmentId']?.toString();
+          final departmentName = staffData['departmentName']?.toString() ?? staffData['DepartmentName']?.toString();
+
+          if (departmentId != null && departmentName != null) {
+            _departmentId = departmentId;
+            _departmentName = departmentName;
+            await prefs.setString(_departmentIdKey, departmentId);
+            await prefs.setString(_departmentNameKey, departmentName);
+            print('✅ Refreshed department from API: $departmentName');
+            return;
+          }
+        }
+      } catch (e) {
+        print('⚠️ Could not refresh department from API: $e');
+      }
+    }
+
+    // Fallback: Use existing values from memory
+    if (_departmentName != null && _departmentName != 'RWMC - Waste Management') {
+      await prefs.setString(_departmentNameKey, _departmentName!);
+      await prefs.setString(_departmentIdKey, _departmentId!);
+      print('✅ Force refreshed department from memory: $_departmentName');
+    } else {
+      // Load from prefs as last resort
+      final deptName = prefs.getString(_departmentNameKey);
+      final deptId = prefs.getString(_departmentIdKey);
+      if (deptName != null && deptId != null) {
+        _departmentName = deptName;
+        _departmentId = deptId;
+        print('📱 Loaded department from prefs: $deptName');
+      }
+    }
   }
 
   // ========== GET COMPLETE USER DATA ==========
@@ -489,8 +528,7 @@ class AuthService {
     return prefs.getInt(_leaderboardRankKey) ?? 0;
   }
 
-  // ========== STAFF GETTERS (FIXED) ==========
-
+  // ========== STAFF GETTERS ==========
   Future<String?> getStaffId() async {
     if (_staffId != null) return _staffId;
     final prefs = await SharedPreferences.getInstance();
@@ -531,7 +569,6 @@ class AuthService {
   }
 
   // ========== CONTRACTOR GETTERS ==========
-
   Future<String?> getContractorId() async {
     if (_currentContractorId != null) return _currentContractorId;
     final prefs = await SharedPreferences.getInstance();
@@ -609,9 +646,8 @@ class AuthService {
     _currentCompanyName = null;
     _currentContractorPerformance = null;
   }
-// Add to AuthService class
 
-  /// Get citizen's strike count and ban status
+  // ========== GET CITIZEN STRIKES ==========
   Future<Map<String, dynamic>> getCitizenStrikes() async {
     final userId = await getUserId();
     if (userId == null) return {'strikes': 0, 'isBanned': false};
@@ -626,10 +662,25 @@ class AuthService {
     }
     return {'strikes': 0, 'isBanned': false};
   }
+
   // ========== GET AUTH TOKEN ==========
   Future<String?> getAuthToken() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_tokenKey);
+  }
+
+  // ========== GET STAFF INFO (NEW HELPER) ==========
+  Future<Map<String, dynamic>?> getStaffInfo() async {
+    final staffId = await getStaffId();
+    if (staffId == null) return null;
+
+    return {
+      'staffId': staffId,
+      'departmentId': await getDepartmentId(),
+      'departmentName': await getDepartmentName(),
+      'role': await getRole(),
+      'employeeId': await getEmployeeId(),
+    };
   }
 
   // ========== DEBUG ==========

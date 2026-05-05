@@ -60,6 +60,12 @@ class _ContractorDashboardScreenState extends State<ContractorDashboardScreen> {
 
       final data = await _contractorService.getContractorDashboard(contractorId);
 
+      // Debug print to see what we're getting
+      print('📦 Dashboard data keys: ${data.keys}');
+      if (data['Zones'] != null && data['Zones'].isNotEmpty) {
+        print('📦 First zone keys: ${data['Zones'][0].keys}');
+      }
+
       setState(() {
         // Extract contractor info
         final contractorData = data['Contractor'] ?? {};
@@ -427,7 +433,8 @@ class _ContractorDashboardScreenState extends State<ContractorDashboardScreen> {
                             itemCount: _performanceHistory.length,
                             itemBuilder: (context, index) {
                               final history = _performanceHistory[index];
-                              final score = (history['performanceScore'] ?? 0).toDouble();
+                              final score = (history['PerformanceScore'] ??
+                                  history['performanceScore'] ?? 0).toDouble();
                               return Container(
                                 width: 80,
                                 margin: const EdgeInsets.only(right: 12),
@@ -449,7 +456,8 @@ class _ContractorDashboardScreenState extends State<ContractorDashboardScreen> {
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      history['reviewPeriodEnd']?.toString().substring(0, 7) ?? '',
+                                      history['ReviewPeriodEnd']?.toString().substring(0, 7) ??
+                                          history['reviewPeriodEnd']?.toString().substring(0, 7) ?? '',
                                       style: const TextStyle(fontSize: 10, color: Colors.grey),
                                     ),
                                   ],
@@ -558,8 +566,24 @@ class _ContractorDashboardScreenState extends State<ContractorDashboardScreen> {
   }
 
   Widget _buildZoneCard(Map<String, dynamic> zone) {
-    final activeComplaints = zone['activeComplaints'] ?? 0;
-    final performance = zone['performance'] ?? 0;
+    // Handle both PascalCase (backend) and camelCase (frontend) property names
+    final zoneName = zone['ZoneName'] ?? zone['zoneName'] ?? 'Unknown Zone';
+    final zoneNumber = zone['ZoneNumber'] ?? zone['zoneNumber'] ?? 'N/A';
+    final city = zone['City'] ?? zone['city'] ?? 'N/A';
+    final province = zone['Province'] ?? zone['province'] ?? 'N/A';
+    final serviceType = zone['ServiceType'] ?? zone['serviceType'] ?? 'N/A';
+    final activeComplaints = (zone['ActiveComplaints'] ?? zone['activeComplaints'] ?? 0) as int;
+    final resolvedComplaints = (zone['ResolvedComplaints'] ?? zone['resolvedComplaints'] ?? 0) as int;
+
+    // Calculate performance if not directly provided
+    double performance = 0;
+    if (zone['Performance'] != null) {
+      performance = (zone['Performance'] as num).toDouble();
+    } else if (zone['performance'] != null) {
+      performance = (zone['performance'] as num).toDouble();
+    } else if (activeComplaints + resolvedComplaints > 0) {
+      performance = (resolvedComplaints / (activeComplaints + resolvedComplaints)) * 100;
+    }
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -583,7 +607,7 @@ class _ContractorDashboardScreenState extends State<ContractorDashboardScreen> {
                 children: [
                   Expanded(
                     child: Text(
-                      zone['zoneName'] ?? 'Unknown Zone',
+                      zoneName,
                       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                   ),
@@ -607,25 +631,42 @@ class _ContractorDashboardScreenState extends State<ContractorDashboardScreen> {
               ),
               const SizedBox(height: 8),
 
+              // Zone details row (Zone # and City)
               Row(
                 children: [
-                  Icon(Icons.category, size: 14, color: Colors.grey[500]),
+                  Icon(Icons.tag, size: 14, color: Colors.grey[500]),
                   const SizedBox(width: 4),
                   Text(
-                    zone['serviceType'] ?? 'N/A',
+                    'Zone #$zoneNumber',
                     style: const TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                   const SizedBox(width: 16),
                   Icon(Icons.location_on, size: 14, color: Colors.grey[500]),
                   const SizedBox(width: 4),
                   Text(
-                    zone['city'] ?? 'N/A',
+                    city,
                     style: const TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                 ],
               ),
+
+              const SizedBox(height: 4),
+
+              // Service type row
+              Row(
+                children: [
+                  Icon(Icons.category, size: 14, color: Colors.grey[500]),
+                  const SizedBox(width: 4),
+                  Text(
+                    serviceType,
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+              ),
+
               const SizedBox(height: 12),
 
+              // Stats row
               Row(
                 children: [
                   Expanded(
@@ -646,7 +687,7 @@ class _ContractorDashboardScreenState extends State<ContractorDashboardScreen> {
                       children: [
                         const Text('Resolved', style: TextStyle(fontSize: 10, color: Colors.grey)),
                         Text(
-                          '${zone['resolvedComplaints'] ?? 0}',
+                          '$resolvedComplaints',
                           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                         ),
                       ],
@@ -658,11 +699,11 @@ class _ContractorDashboardScreenState extends State<ContractorDashboardScreen> {
                       children: [
                         const Text('Performance', style: TextStyle(fontSize: 10, color: Colors.grey)),
                         Text(
-                          '$performance%',
+                          '${performance.toStringAsFixed(0)}%',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            color: _getPerformanceColor(performance.toDouble()),
+                            color: _getPerformanceColor(performance),
                           ),
                         ),
                       ],

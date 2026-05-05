@@ -1,11 +1,14 @@
-// lib/screens/staff/staff_dashboard_screen.dart
+// lib/screens/staff/staff_dashboard_screen.dart - UPDATED
 
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
 import 'staff_drawer.dart';
 import '../../services/AuthService.dart';
 import '../../services/staff_action_service.dart';
 import '../../services/locationservice.dart';
+import '../../services/api_config.dart';
 import '../../config/routes.dart';
 
 class StaffDashboardScreen extends StatefulWidget {
@@ -50,7 +53,47 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   void initState() {
     super.initState();
     _loadStaffDashboard();
+    _loadStaffPerformance(); // Add this to load performance metrics
     _getCurrentLocation();
+  }
+
+  // NEW: Load staff performance from performance API
+  Future<void> _loadStaffPerformance() async {
+    try {
+      final staffId = await _authService.getStaffId();
+      if (staffId == null) return;
+
+      print('📡 Loading staff performance for: $staffId');
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/staff-performance/$staffId'),
+        headers: ApiConfig.getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      print('📡 Performance response status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['success'] == true && data['staff'] != null) {
+          final staffData = data['staff'];
+          setState(() {
+            _performanceScore = staffData['PerformanceScore']?.toDouble() ?? 0;
+            _avgResolutionTime = staffData['AverageResolutionTime']?.toDouble() ?? 0;
+            _completionRate = staffData['CompletionRate']?.toDouble() ?? 0;
+          });
+          print('✅ Performance loaded - Score: $_performanceScore%, Resolution: $_avgResolutionTime h');
+        } else if (data['staff'] != null) {
+          setState(() {
+            _performanceScore = data['staff']['PerformanceScore']?.toDouble() ?? 0;
+            _avgResolutionTime = data['staff']['AverageResolutionTime']?.toDouble() ?? 0;
+            _completionRate = data['staff']['CompletionRate']?.toDouble() ?? 0;
+          });
+        }
+      } else {
+        print('⚠️ Performance API returned ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ Error loading staff performance: $e');
+    }
   }
 
   Future<void> _getCurrentLocation() async {
@@ -114,7 +157,9 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       _departmentName = data['DepartmentName'] ?? await _authService.getDepartmentName() ?? 'Not Assigned';
       _role = data['Role'] ?? 'Field Staff';
       _employeeId = data['EmployeeId'];
-      _performanceScore = (data['PerformanceScore'] ?? 0.0).toDouble();
+
+      // Don't override performance score from dashboard data (use performance API instead)
+      // _performanceScore = (data['PerformanceScore'] ?? 0.0).toDouble();
 
       // Extract statistics
       final stats = data['Statistics'] ?? {};
@@ -123,10 +168,16 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       _pendingAssignments = stats['Pending'] ?? 0;
       _acceptedAssignments = stats['Accepted'] ?? 0;
       _inProgressAssignments = stats['InProgress'] ?? 0;
-      _avgResolutionTime = (stats['AverageResolutionTime'] ?? 0.0).toDouble();
-      _completionRate = stats['CompletionRate'] ?? (_totalAssignments > 0 ? (_completedAssignments * 100 / _totalAssignments) : 0);
 
-      // Extract active tasks with proper key mapping
+      // Only use dashboard resolution time if performance API didn't load
+      if (_avgResolutionTime == 0) {
+        _avgResolutionTime = (stats['AverageResolutionTime'] ?? 0.0).toDouble();
+      }
+      if (_completionRate == 0) {
+        _completionRate = stats['CompletionRate'] ?? (_totalAssignments > 0 ? (_completedAssignments * 100 / _totalAssignments) : 0);
+      }
+
+      // Extract active tasks
       final assignments = data['Assignments'] ?? [];
       _activeTasks = assignments.map<Map<String, dynamic>>((task) {
         return {
@@ -222,6 +273,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
 
     if (result == true && mounted) {
       _loadStaffDashboard();
+      _loadStaffPerformance(); // Refresh performance after task update
     }
   }
 
@@ -253,7 +305,10 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
               Text('Error: $_errorMessage'),
               const SizedBox(height: 16),
               ElevatedButton(
-                onPressed: _loadStaffDashboard,
+                onPressed: () {
+                  _loadStaffDashboard();
+                  _loadStaffPerformance();
+                },
                 child: const Text('Retry'),
               ),
             ],
@@ -299,7 +354,10 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       ),
       drawer: const StaffDrawer(),
       body: RefreshIndicator(
-        onRefresh: _loadStaffDashboard,
+        onRefresh: () async {
+          await _loadStaffDashboard();
+          await _loadStaffPerformance();
+        },
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           child: Column(
@@ -368,7 +426,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
               ),
 
               // Stats Cards
-              Container(
+              Padding(
                 padding: const EdgeInsets.all(16),
                 child: Row(
                   children: [
@@ -520,14 +578,14 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                         Expanded(
                           child: _buildMetricCircle(
                             '${_performanceScore?.toStringAsFixed(0) ?? "0"}%',
-                            'Performance',
+                            'Performance Score',
                             Colors.blue,
                           ),
                         ),
                         Expanded(
                           child: _buildMetricCircle(
                             '${_avgResolutionTime.toStringAsFixed(1)}h',
-                            'Avg. Resolution',
+                            'Avg Resolution',
                             Colors.orange,
                           ),
                         ),

@@ -18,49 +18,8 @@ class _FieldStaffLoginScreenState extends State<FieldStaffLoginScreen> {
   bool _obscurePassword = true;
   bool _rememberMe = false;
   bool _isLoading = false;
-  String? _selectedDepartment;
 
-  // Department list for staff
-  final List<Map<String, dynamic>> departments = [
-    {
-      'name': 'WASA - Water & Sewerage',
-      'code': 'WASA',
-      'staffEmails': [
-        'usman.a@ccmw.gov.pk',
-        'staff.wasa1@ccmw.gov.pk',
-        'staff.wasa2@ccmw.gov.pk',
-      ]
-    },
-    {
-      'name': 'RWMC - Waste Management',
-      'code': 'RWMC',
-      'staffEmails': [
-        'kashif.m@ccmw.gov.pk',
-        'saima.b@ccmw.gov.pk',
-        'staff.rwmc1@ccmw.gov.pk',
-      ]
-    },
-    {
-      'name': 'WAPDA - Electricity',
-      'code': 'ELEC',
-      'staffEmails': [
-        'imran.k@ccmw.gov.pk',
-        'staff.elec1@ccmw.gov.pk',
-        'staff.elec2@ccmw.gov.pk',
-      ]
-    },
-    {
-      'name': 'CDA - Civic Services',
-      'code': 'CDA',
-      'staffEmails': [
-        'alice.smith@example.com',
-        'nadia.a@ccmw.gov.pk',
-        'staff.cda1@ccmw.gov.pk',
-      ]
-    },
-  ];
-
-  // System admin can also access staff view if needed
+  // System admin email for special access
   final String systemAdminEmail = 'admin@ccmw.gov.pk';
 
   Future<void> _handleLogin() async {
@@ -71,7 +30,7 @@ class _FieldStaffLoginScreenState extends State<FieldStaffLoginScreen> {
         final email = _emailController.text.trim();
         final isSystemAdmin = email == systemAdminEmail;
 
-        // Perform login
+        // Perform login using staffLogin endpoint
         await _authService.staffLogin(email, _passwordController.text);
 
         if (!mounted) return;
@@ -85,50 +44,40 @@ class _FieldStaffLoginScreenState extends State<FieldStaffLoginScreen> {
         print('✅ Staff ID: $staffId');
         print('✅ User name: $userName');
 
-        // Validate user type (allow system admin to access)
-        if (!isSystemAdmin && userType?.toLowerCase() != 'field_staff') {
-          await _authService.logout();
-
-          if (!mounted) return;
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Invalid field staff account'),
-              backgroundColor: Colors.red,
-            ),
-          );
-          return;
-        }
-
-        // If not system admin, verify department
+        // Validate user type (allow system admin to access staff portal)
         if (!isSystemAdmin) {
-          String? departmentName;
-          String? departmentCode;
-
-          for (var dept in departments) {
-            if (dept['staffEmails'].contains(email)) {
-              departmentName = dept['name'];
-              departmentCode = dept['code'];
-              break;
-            }
-          }
-
-          if (departmentName == null) {
+          // Check if user is Field_Staff or Department_Admin
+          if (userType?.toLowerCase() != 'field_staff' &&
+              userType?.toLowerCase() != 'department_admin') {
             await _authService.logout();
 
             if (!mounted) return;
 
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('Staff email not recognized'),
+                content: Text('Invalid field staff account'),
                 backgroundColor: Colors.red,
               ),
             );
             return;
           }
+        }
 
-          await _authService.updateUserData('department_name', departmentName);
-          await _authService.updateUserData('department_code', departmentCode);
+        // Get department from database (not from hardcoded list)
+        final staffInfo = await _authService.getStaffInfo();
+        if (staffInfo != null && staffInfo['departmentName'] != null) {
+          final deptName = staffInfo['departmentName'];
+          final deptId = staffInfo['departmentId'];
+
+          // Save department info to preferences
+          await _authService.updateUserData('department_name', deptName);
+          if (deptId != null) {
+            await _authService.updateUserData('department_id', deptId);
+          }
+
+          print('✅ Department from database: $deptName');
+        } else {
+          print('⚠️ No department info found in staff profile');
         }
 
         // Store staff flags

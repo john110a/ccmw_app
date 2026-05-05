@@ -15,7 +15,7 @@ class StaffActionService {
   /// Get staff performance by ID
   Future<Map<String, dynamic>> getStaffPerformance(String staffId) async {
     try {
-      final url = '${ApiConfig.baseUrl}/staff-performance/$staffId';
+      final url = '${ApiConfig.baseUrl}/staff/$staffId/performance';
       print('📡 Fetching staff performance from: $url');
 
       final response = await http.get(
