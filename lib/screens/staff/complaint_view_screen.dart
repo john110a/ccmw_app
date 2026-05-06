@@ -126,8 +126,8 @@ class _StaffComplaintViewScreenState extends State<StaffComplaintViewScreen> {
         _assignmentId!,
         _staffId!,
         position.latitude,
-        position.longitude,
-        position.accuracy,
+        position.longitude
+
       );
 
       setState(() {

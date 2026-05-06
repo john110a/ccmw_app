@@ -1,4 +1,4 @@
-// lib/services/staff_action_service.dart - UPDATED TO MATCH BACKEND
+// lib/services/staff_action_service.dart - FULLY UPDATED VERSION
 
 import 'dart:convert';
 import 'dart:io';
@@ -23,16 +23,33 @@ class StaffActionService {
         headers: ApiConfig.getHeaders(),
       ).timeout(const Duration(seconds: 10));
 
-      print('📡 Response status: ${response.statusCode}');
+      print('📡 Performance response status: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         return json.decode(response.body);
       } else {
-        throw Exception('Failed to load staff performance: ${response.statusCode}');
+        print('⚠️ Performance API returned ${response.statusCode}');
+        return {
+          'success': false,
+          'StaffId': staffId,
+          'PerformanceScore': 0,
+          'TotalAssignments': 0,
+          'CompletedAssignments': 0,
+          'PendingAssignments': 0,
+          'AverageResolutionTime': 0
+        };
       }
     } catch (e) {
-      print('❌ Error loading staff performance: $e');
-      throw Exception('Network error: $e');
+      print('⚠️ Performance API error: $e');
+      return {
+        'success': false,
+        'StaffId': staffId,
+        'PerformanceScore': 0,
+        'TotalAssignments': 0,
+        'CompletedAssignments': 0,
+        'PendingAssignments': 0,
+        'AverageResolutionTime': 0
+      };
     }
   }
 
@@ -189,7 +206,55 @@ class StaffActionService {
   // 3. TASK WORKFLOW (Accept → Start → Resolve)
   // =====================================================
 
-  /// Accept assignment
+  /// Accept assignment with GPS location
+  Future<Map<String, dynamic>> acceptAssignmentWithLocation(
+      String assignmentId,
+      String staffId,
+      double lat,
+      double lng,
+      ) async {
+    try {
+      final url = '${ApiConfig.baseUrl}/staff-actions/$assignmentId/accept?staffId=$staffId';
+      print('📡 Accepting assignment with location at: $url');
+      print('📍 Location: lat=$lat, lng=$lng');
+
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {
+          ...ApiConfig.getHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: json.encode({
+          'latitude': lat,
+          'longitude': lng,
+        }),
+      ).timeout(const Duration(seconds: 15));
+
+      print('📡 Response status: ${response.statusCode}');
+      print('📡 Response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['success'] == true) {
+          return data;
+        } else {
+          throw Exception(data['message'] ?? 'Failed to accept assignment');
+        }
+      } else if (response.statusCode == 400) {
+        final error = json.decode(response.body);
+        throw Exception(error['message'] ?? 'Bad request');
+      } else if (response.statusCode == 404) {
+        throw Exception('Assignment not found');
+      } else {
+        throw Exception('Server error: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ Error accepting assignment: $e');
+      rethrow;
+    }
+  }
+
+  /// Accept assignment without location (fallback)
   Future<Map<String, dynamic>> acceptAssignment(String assignmentId, String staffId) async {
     try {
       final url = '${ApiConfig.baseUrl}/staff-actions/$assignmentId/accept?staffId=$staffId';
@@ -206,42 +271,6 @@ class StaffActionService {
         return json.decode(response.body);
       } else {
         throw Exception('Failed to accept assignment');
-      }
-    } catch (e) {
-      print('❌ Error accepting assignment: $e');
-      throw Exception('Network error: $e');
-    }
-  }
-
-  /// Accept assignment with GPS location verification
-  Future<Map<String, dynamic>> acceptAssignmentWithLocation(
-      String assignmentId,
-      String staffId,
-      double lat,
-      double lng,
-      double accuracy,
-      ) async {
-    try {
-      final url = '${ApiConfig.baseUrl}/staff-actions/$assignmentId/accept?staffId=$staffId';
-      print('📡 Accepting assignment with location at: $url');
-
-      final response = await http.post(
-        Uri.parse(url),
-        headers: ApiConfig.getHeaders(),
-        body: json.encode({
-          'latitude': lat,
-          'longitude': lng,
-          'accuracy': accuracy,
-        }),
-      ).timeout(const Duration(seconds: 10));
-
-      print('📡 Response status: ${response.statusCode}');
-
-      if (response.statusCode == 200) {
-        return json.decode(response.body);
-      } else {
-        final error = json.decode(response.body);
-        throw Exception(error['Message'] ?? 'Failed to accept assignment');
       }
     } catch (e) {
       print('❌ Error accepting assignment: $e');
@@ -343,7 +372,7 @@ class StaffActionService {
   /// Get nearby complaints
   Future<Map<String, dynamic>> getNearbyComplaints(String staffId, double lat, double lng, double radiusKm) async {
     try {
-      final url = '${ApiConfig.baseUrl}/map/$staffId/nearby-complaints?lat=$lat&lng=$lng&radiusKm=$radiusKm';
+      final url = '${ApiConfig.baseUrl}/staff-actions/$staffId/nearby-complaints?lat=$lat&lng=$lng&radiusKm=$radiusKm';
       print('📡 Fetching nearby complaints from: $url');
 
       final response = await http.get(
@@ -368,37 +397,148 @@ class StaffActionService {
   }
 
   // =====================================================
-  // 5. PHOTO UPLOAD
+  // 5. PHOTO UPLOAD - FULLY IMPROVED
   // =====================================================
 
-  /// Upload resolution photo
+  /// Upload resolution photo with validation and better error handling
   Future<Map<String, dynamic>> uploadResolutionPhoto(String assignmentId, String staffId, File imageFile) async {
     try {
-      var request = http.MultipartRequest(
-        'POST',
-        Uri.parse('${ApiConfig.baseUrl}/complaint-media/assignment/$assignmentId/resolution/upload?staffId=$staffId'),
-      );
+      // Validate file exists
+      if (!await imageFile.exists()) {
+        throw Exception('Image file does not exist at: ${imageFile.path}');
+      }
 
-      request.files.add(
-        await http.MultipartFile.fromPath(
-          'file',
-          imageFile.path,
-          contentType: MediaType('image', 'jpeg'),
-        ),
-      );
+      // Check file size
+      final fileSize = await imageFile.length();
+      if (fileSize == 0) {
+        throw Exception('Image file is empty');
+      }
 
-      var response = await request.send();
+      // 10MB limit
+      const maxSize = 10 * 1024 * 1024;
+      if (fileSize > maxSize) {
+        final sizeInMB = (fileSize / 1024 / 1024).toStringAsFixed(2);
+        throw Exception('File too large ($sizeInMB MB). Maximum 10MB allowed.');
+      }
+
+      final url = '${ApiConfig.baseUrl}/complaint-media/assignment/$assignmentId/resolution/upload?staffId=$staffId';
+      print('📡 Uploading photo to: $url');
+      print('📡 File: ${imageFile.path}');
+      print('📡 Size: ${(fileSize / 1024).toStringAsFixed(2)} KB');
+
+      // Create multipart request
+      var request = http.MultipartRequest('POST', Uri.parse(url));
+
+      // Add headers
+      request.headers.addAll(ApiConfig.getHeaders());
+      request.headers['Content-Type'] = 'multipart/form-data';
+
+      // Add file
+      var multipartFile = await http.MultipartFile.fromPath(
+        'file',
+        imageFile.path,
+        contentType: MediaType('image', 'jpeg'),
+      );
+      request.files.add(multipartFile);
+
+      // Send request with longer timeout for large files
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 30));
+
+      // Get response
+      final response = await http.Response.fromStream(streamedResponse);
+
       print('📡 Upload response status: ${response.statusCode}');
+      print('📡 Upload response body: ${response.body}');
 
-      if (response.statusCode == 200) {
-        final responseData = await response.stream.bytesToString();
-        return json.decode(responseData);
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return json.decode(response.body);
+      } else if (response.statusCode == 413) {
+        throw Exception('File too large for server (413 Payload Too Large)');
       } else {
-        throw Exception('Failed to upload photo');
+        String errorMessage;
+        try {
+          final errorData = json.decode(response.body);
+          errorMessage = errorData['message'] ?? errorData['error'] ?? 'Upload failed';
+        } catch (e) {
+          errorMessage = 'Server error: ${response.statusCode}';
+        }
+        throw Exception(errorMessage);
       }
     } catch (e) {
       print('❌ Upload failed: $e');
-      throw Exception('Upload failed: $e');
+      rethrow;
+    }
+  }
+
+  /// Upload multiple photos
+  Future<List<Map<String, dynamic>>> uploadMultiplePhotos(
+      String assignmentId,
+      String staffId,
+      List<File> imageFiles,
+      ) async {
+    List<Map<String, dynamic>> results = [];
+
+    for (int i = 0; i < imageFiles.length; i++) {
+      try {
+        print('📡 Uploading photo ${i + 1}/${imageFiles.length}');
+        final result = await uploadResolutionPhoto(assignmentId, staffId, imageFiles[i]);
+        results.add(result);
+      } catch (e) {
+        print('❌ Failed to upload photo ${i + 1}: $e');
+        // Continue with remaining files
+      }
+    }
+
+    return results;
+  }
+
+  /// Upload resolution photo with progress callback
+  Future<Map<String, dynamic>> uploadResolutionPhotoWithProgress(
+      String assignmentId,
+      String staffId,
+      File imageFile,
+      Function(double) onProgress,
+      ) async {
+    try {
+      // Validate file
+      if (!await imageFile.exists()) {
+        throw Exception('Image file does not exist');
+      }
+
+      final fileSize = await imageFile.length();
+      final url = '${ApiConfig.baseUrl}/complaint-media/assignment/$assignmentId/resolution/upload?staffId=$staffId';
+      print('📡 Uploading photo to: $url');
+
+      var request = http.MultipartRequest('POST', Uri.parse(url));
+      request.headers.addAll(ApiConfig.getHeaders());
+
+      var multipartFile = await http.MultipartFile.fromPath(
+        'file',
+        imageFile.path,
+        contentType: MediaType('image', 'jpeg'),
+      );
+      request.files.add(multipartFile);
+
+      // Send request
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 30));
+
+      // Report progress complete
+      if (onProgress != null) {
+        onProgress(1.0);
+      }
+
+      final response = await http.Response.fromStream(streamedResponse);
+
+      print('📡 Upload response status: ${response.statusCode}');
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return json.decode(response.body);
+      } else {
+        throw Exception('Failed to upload photo: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ Upload failed: $e');
+      rethrow;
     }
   }
 

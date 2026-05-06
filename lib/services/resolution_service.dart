@@ -103,28 +103,43 @@ class ResolutionService {
   }
 
   // =====================================================
-  // 3. VERIFY RESOLUTION
+  // 3. VERIFY RESOLUTION - UPDATED
   // =====================================================
 
   /// Verify a resolved complaint (mark as verified)
   Future<void> verifyResolution(String resolutionId, {String? notes}) async {
     try {
-      print('📡 Verifying resolution: $resolutionId');
+      final url = '${ApiConfig.baseUrl}/resolutions/$resolutionId/verify';
+      print('📡 Verifying resolution at: $url');
+      print('📡 Request body: ${json.encode({'notes': notes ?? 'Verified by admin'})}');
 
       final response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/resolutions/$resolutionId/verify'),
+        Uri.parse(url),
         headers: ApiConfig.getHeaders(),
-        body: json.encode({'notes': notes}),
+        body: json.encode({'notes': notes ?? 'Verified by admin'}),
       ).timeout(const Duration(seconds: 10));
 
       print('📡 Response status: ${response.statusCode}');
+      print('📡 Response body: ${response.body}');
 
-      if (response.statusCode != 200) {
-        final error = json.decode(response.body);
-        throw Exception(error['message'] ?? 'Failed to verify resolution');
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['success'] == true || data['Message'] != null) {
+          print('✅ Resolution verified successfully');
+          return;
+        } else {
+          throw Exception(data['Message'] ?? 'Failed to verify resolution');
+        }
+      } else {
+        String errorMsg;
+        try {
+          final error = json.decode(response.body);
+          errorMsg = error['Message'] ?? error['message'] ?? 'Failed to verify resolution';
+        } catch (e) {
+          errorMsg = 'Failed to verify resolution: ${response.statusCode}';
+        }
+        throw Exception(errorMsg);
       }
-
-      print('✅ Resolution verified successfully');
     } catch (e) {
       print('❌ Error verifying resolution: $e');
       rethrow;
@@ -132,31 +147,49 @@ class ResolutionService {
   }
 
   // =====================================================
-  // 4. FLAG RESOLUTION (SEND BACK FOR REWORK)
+  // 4. FLAG RESOLUTION - UPDATED
   // =====================================================
 
   /// Flag a resolution for rework (sends back to In Progress)
   Future<void> flagResolution(String resolutionId, String reason, {String? notes}) async {
     try {
-      print('📡 Flagging resolution: $resolutionId');
+      final url = '${ApiConfig.baseUrl}/resolutions/$resolutionId/flag';
+      print('📡 Flagging resolution at: $url');
+      print('📡 Request body: ${json.encode({
+        'reason': reason,
+        'notes': notes ?? 'Flagged by admin'
+      })}');
 
       final response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/resolutions/$resolutionId/flag'),
+        Uri.parse(url),
         headers: ApiConfig.getHeaders(),
         body: json.encode({
           'reason': reason,
-          'notes': notes,
+          'notes': notes ?? 'Flagged by admin'
         }),
       ).timeout(const Duration(seconds: 10));
 
       print('📡 Response status: ${response.statusCode}');
+      print('📡 Response body: ${response.body}');
 
-      if (response.statusCode != 200) {
-        final error = json.decode(response.body);
-        throw Exception(error['message'] ?? 'Failed to flag resolution');
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['success'] == true || data['Message'] != null) {
+          print('✅ Resolution flagged successfully');
+          return;
+        } else {
+          throw Exception(data['Message'] ?? 'Failed to flag resolution');
+        }
+      } else {
+        String errorMsg;
+        try {
+          final error = json.decode(response.body);
+          errorMsg = error['Message'] ?? error['message'] ?? 'Failed to flag resolution';
+        } catch (e) {
+          errorMsg = 'Failed to flag resolution: ${response.statusCode}';
+        }
+        throw Exception(errorMsg);
       }
-
-      print('✅ Resolution flagged successfully');
     } catch (e) {
       print('❌ Error flagging resolution: $e');
       rethrow;
@@ -164,23 +197,31 @@ class ResolutionService {
   }
 
   // =====================================================
-  // 5. GET RESOLUTION STATISTICS
+  // 5. GET RESOLUTION STATISTICS - UPDATED
   // =====================================================
 
   /// Get statistics about resolutions
   Future<Map<String, dynamic>> getResolutionStats() async {
     try {
-      print('📡 Fetching resolution stats from: ${ApiConfig.baseUrl}/resolutions/stats');
+      final url = '${ApiConfig.baseUrl}/resolutions/stats';
+      print('📡 Fetching resolution stats from: $url');
 
       final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/resolutions/stats'),
+        Uri.parse(url),
         headers: ApiConfig.getHeaders(),
       ).timeout(const Duration(seconds: 10));
+
+      print('📡 Response status: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         print('✅ Stats loaded: $data');
-        return data;
+        return {
+          'PendingResolutions': data['PendingResolutions'] ?? 0,
+          'VerifiedResolutions': data['VerifiedResolutions'] ?? 0,
+          'TotalResolutions': data['TotalResolutions'] ?? 0,
+          'ThisMonth': data['ThisMonth'] ?? 0,
+        };
       } else {
         print('⚠️ Failed to load stats: ${response.statusCode}');
         return {
@@ -242,15 +283,40 @@ class ResolutionService {
   /// Upload after photo for resolution
   Future<bool> uploadAfterPhoto(String complaintId, String imagePath) async {
     try {
-      // This would use MultipartRequest - implement based on your backend
       print('📡 Uploading after photo for complaint: $complaintId');
-
       // Your multipart upload code here
-
       return true;
     } catch (e) {
       print('❌ Error uploading photo: $e');
       return false;
     }
+  }
+
+  // =====================================================
+  // 8. HELPER METHOD - GET FULL IMAGE URL
+  // =====================================================
+
+  /// Get full URL for an image path
+  static String getFullImageUrl(String? imagePath) {
+    if (imagePath == null || imagePath.isEmpty) return '';
+
+    // If already a full URL
+    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+      return imagePath;
+    }
+
+    // Remove leading slash
+    String cleanPath = imagePath.startsWith('/') ? imagePath.substring(1) : imagePath;
+
+    // Get base URL without /api
+    String baseUrl = ApiConfig.baseUrl;
+    if (baseUrl.endsWith('/api')) {
+      baseUrl = baseUrl.substring(0, baseUrl.length - 4);
+    }
+    if (baseUrl.endsWith('/')) {
+      baseUrl = baseUrl.substring(0, baseUrl.length - 1);
+    }
+
+    return '$baseUrl/$cleanPath';
   }
 }

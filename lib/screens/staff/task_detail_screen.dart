@@ -85,8 +85,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         _assignmentId!,
         _staffId!,
         position.latitude,
-        position.longitude,
-        position.accuracy,
+        position.longitude
+
       );
 
       setState(() {

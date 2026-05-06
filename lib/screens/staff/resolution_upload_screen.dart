@@ -401,6 +401,7 @@ class _ResolutionUploadScreenState extends State<ResolutionUploadScreen> {
                   const SizedBox(height: 8),
                   TextField(
                     controller: _notesController,
+                    style: TextStyle(color: Colors.black),
                     maxLines: 5,
                     decoration: InputDecoration(
                       hintText: 'Describe how you resolved the issue...',
