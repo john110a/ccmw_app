@@ -6,6 +6,7 @@ import '../../services/dashboard_service.dart';
 import '../../services/AuthService.dart';
 import '../../models/user_model.dart';
 import '../../models/complaint_model.dart';
+import '../../services/resolution_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -17,6 +18,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final DashboardService _dashboardService = DashboardService();
   final AuthService _authService = AuthService();
+  final ResolutionService _resolutionService = ResolutionService(); // ADDED
 
   // Data variables
   Map<String, dynamic> _dashboardData = {};
@@ -27,7 +29,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Statistics
   int _totalComplaints = 0;
-  int _resolvedComplaints = 0;
+  int _verifiedComplaints = 0;      // CHANGED: was _resolvedComplaints
   int _pendingComplaints = 0;
   int _approvedComplaints = 0;
 
@@ -37,7 +39,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _zoneName;
   String? _badgeLevel;
 
-  // ===== ADDED: Location variables =====
+  // Location variables
   String? _currentAddress;
   bool _isLocationLoading = false;
 
@@ -46,15 +48,14 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _loadDashboardData();
     _loadUserData();
-    _getCurrentLocation(); // ===== ADDED =====
+    _getCurrentLocation();
   }
 
-  // ===== ADDED: Get user's current location =====
+  // Get user's current location
   Future<void> _getCurrentLocation() async {
     setState(() => _isLocationLoading = true);
 
     try {
-      // Check if location services are enabled
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         setState(() {
@@ -64,7 +65,6 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
 
-      // Check and request permissions
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
@@ -85,12 +85,10 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
 
-      // Get current position
       Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
 
-      // Get address from coordinates
       List<Placemark> placemarks = await placemarkFromCoordinates(
         position.latitude,
         position.longitude,
@@ -133,6 +131,9 @@ class _HomeScreenState extends State<HomeScreen> {
       // Load dashboard data from API
       final data = await _dashboardService.getCitizenDashboard(userId);
 
+      // Load resolution stats for verified complaints
+      final resolutionStats = await _resolutionService.getResolutionStats();
+
       setState(() {
         _dashboardData = data;
         _currentUser = User.fromJson(data['User'] ?? {});
@@ -140,7 +141,8 @@ class _HomeScreenState extends State<HomeScreen> {
         // Extract statistics
         final stats = data['Statistics'] ?? {};
         _totalComplaints = stats['TotalComplaints'] ?? 0;
-        _resolvedComplaints = stats['ResolvedComplaints'] ?? 0;
+        // CHANGED: Use VerifiedResolutions from stats instead
+        _verifiedComplaints = resolutionStats['VerifiedResolutions'] ?? 0;
         _pendingComplaints = stats['PendingComplaints'] ?? 0;
         _approvedComplaints = stats['ApprovedComplaints'] ?? 0;
 
@@ -168,7 +170,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // ===== ADDED: Navigate to notifications screen =====
   void _navigateToNotifications() {
     Navigator.pushNamed(context, '/notifications');
   }
@@ -176,7 +177,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA), // ← YOUR ORIGINAL BACKGROUND
+      backgroundColor: const Color(0xFFF5F7FA),
       drawer: _buildDrawer(),
       body: _isLoading
           ? _buildLoadingScreen()
@@ -186,7 +187,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ========== DRAWER (YOUR ORIGINAL CODE - UNCHANGED) ==========
+  // ========== DRAWER ==========
   Widget _buildDrawer() {
     return Drawer(
       child: Container(
@@ -267,7 +268,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       _buildDrawerStat('$_totalComplaints', 'Total'),
                       const VerticalDivider(color: Colors.white30),
-                      _buildDrawerStat('$_resolvedComplaints', 'Resolved'),
+                      // CHANGED: Show Verified instead of Resolved
+                      _buildDrawerStat('$_verifiedComplaints', 'Verified'),
                       const VerticalDivider(color: Colors.white30),
                       _buildDrawerStat('$_pendingComplaints', 'Pending'),
                     ],
@@ -408,7 +410,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Helper methods for badge
   IconData _getBadgeIcon(String badge) {
     switch (badge.toLowerCase()) {
       case 'gold': return Icons.emoji_events;
@@ -489,7 +490,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ========== LOADING SCREEN (YOUR ORIGINAL) ==========
   Widget _buildLoadingScreen() {
     return Container(
       color: const Color(0xFFF5F7FA),
@@ -526,7 +526,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ========== ERROR SCREEN (YOUR ORIGINAL) ==========//
   Widget _buildErrorScreen() {
     return Container(
       color: const Color(0xFFF5F7FA),
@@ -588,11 +587,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ========== MAIN HOME CONTENT ==========
   Widget _buildHomeContent() {
     return CustomScrollView(
       slivers: [
-        // App Bar with Gradient - YOUR ORIGINAL (UPDATED with clickable notification)
         SliverAppBar(
           expandedHeight: 200,
           pinned: true,
@@ -640,7 +637,6 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ],
                           ),
-                          // ===== UPDATED: Clickable Notification Badge =====
                           GestureDetector(
                             onTap: _navigateToNotifications,
                             child: Container(
@@ -678,12 +674,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                       const SizedBox(height: 16),
-                      // Stats Row
                       Row(
                         children: [
                           Expanded(child: _buildStatCard('$_totalComplaints', 'Total Reports')),
                           const SizedBox(width: 12),
-                          Expanded(child: _buildStatCard('$_resolvedComplaints', 'Resolved')),
+                          // CHANGED: Show Verified instead of Resolved
+                          Expanded(child: _buildStatCard('$_verifiedComplaints', 'Verified')),
                           const SizedBox(width: 12),
                           Expanded(child: _buildStatCard('$_pendingComplaints', 'Pending')),
                         ],
@@ -696,12 +692,10 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
 
-        // Body Content
         SliverPadding(
           padding: const EdgeInsets.all(16),
           sliver: SliverList(
             delegate: SliverChildListDelegate([
-              // Report Issue Button - YOUR ORIGINAL
               Container(
                 width: double.infinity,
                 height: 60,
@@ -747,7 +741,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 16),
 
-              // Zone Card with User's Current Location
               Card(
                 elevation: 0,
                 shape: RoundedRectangleBorder(
@@ -812,7 +805,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 24),
 
-              // Quick Actions Title - YOUR ORIGINAL
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -833,12 +825,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 12),
 
-              // Quick Actions Grid - YOUR ORIGINAL
               _buildQuickActionsGrid(),
 
               const SizedBox(height: 24),
 
-              // Recent Activity Title - YOUR ORIGINAL
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -861,7 +851,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 12),
 
-              // Recent Complaints List - YOUR ORIGINAL
               _buildRecentComplaints(),
             ]),
           ),
@@ -870,7 +859,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ===== YOUR ORIGINAL METHODS (UNCHANGED) =====
   Widget _buildStatCard(String value, String label) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12),

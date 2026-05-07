@@ -5,6 +5,7 @@ import '../../services/AuthService.dart';
 import '../../services/dashboard_service.dart';
 import '../../services/duplicate_service.dart';
 import '../../models/user_model.dart';
+import '../../services/resolution_service.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -17,6 +18,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   final AuthService _authService = AuthService();
   final DashboardService _dashboardService = DashboardService();
   final DuplicateService _duplicateService = DuplicateService();
+  final ResolutionService _resolutionService = ResolutionService();
 
   // Dashboard data
   Map<String, dynamic> _dashboardData = {};
@@ -32,13 +34,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   int _totalStaff = 0;
   int _totalContractors = 0;
   int _totalComplaints = 0;
-  int _resolvedComplaints = 0;
+  int _verifiedComplaints = 0;  // CHANGED: from resolvedComplaints to verifiedComplaints
   int _activeComplaints = 0;
   int _pendingApprovals = 0;
   int _overdueComplaints = 0;
   int _totalDepartments = 0;
   int _totalZones = 0;
   double _avgResponseTime = 0.0;
+
+  // Resolution stats
+  int _pendingResolutions = 0;
+  int _totalResolutions = 0;
 
   // Lists for top performers
   List<dynamic> _topDepartments = [];
@@ -100,6 +106,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     try {
       final data = await _dashboardService.getAdminDashboard();
 
+      // Load resolution stats separately for verified count
+      final resolutionStats = await _resolutionService.getResolutionStats();
+
       setState(() {
         _dashboardData = data;
 
@@ -109,13 +118,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         _totalStaff = stats['TotalStaff'] ?? 0;
         _totalContractors = stats['TotalContractors'] ?? 0;
         _totalComplaints = stats['TotalComplaints'] ?? 0;
-        _resolvedComplaints = stats['ResolvedComplaints'] ?? 0;
+        _verifiedComplaints = resolutionStats['VerifiedResolutions'] ?? 0;  // CHANGED: Use verified count from resolution stats
         _activeComplaints = stats['ActiveComplaints'] ?? 0;
         _pendingApprovals = stats['PendingApprovals'] ?? 0;
         _overdueComplaints = stats['OverdueComplaints'] ?? 0;
         _totalDepartments = stats['TotalDepartments'] ?? 0;
         _totalZones = stats['TotalZones'] ?? 0;
         _avgResponseTime = (stats['AverageResponseTime'] ?? 0.0).toDouble();
+
+        // Resolution stats
+        _pendingResolutions = resolutionStats['PendingResolutions'] ?? 0;
+        _totalResolutions = resolutionStats['TotalResolutions'] ?? 0;
 
         _topDepartments = data['TopDepartments'] ?? [];
         _topZones = data['TopZones'] ?? [];
@@ -401,7 +414,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     ),
                     const SizedBox(height: 20),
 
-                    // Quick Stats Grid
+                    // Quick Stats Grid - UPDATED
                     LayoutBuilder(
                       builder: (context, constraints) {
                         double cardWidth = (constraints.maxWidth - 36) / 4;
@@ -413,7 +426,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               _buildCompactStatCard('$_totalComplaints', 'Total', Icons.report, Colors.blue, cardWidth),
-                              _buildCompactStatCard('$_resolvedComplaints', 'Resolved', Icons.check_circle, Colors.green, cardWidth),
+                              // CHANGED: Now shows Verified Complaints instead of Resolved
+                              _buildCompactStatCard('$_verifiedComplaints', 'Verified', Icons.verified, Colors.green, cardWidth),
                               _buildCompactStatCard('$_pendingApprovals', 'Pending', Icons.pending, Colors.orange, cardWidth),
                               _buildCompactStatCard('$_overdueComplaints', 'Overdue', Icons.warning, Colors.red, cardWidth),
                             ],
@@ -455,7 +469,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         _buildCompactActionCard(Icons.merge_type, 'Merge\nDuplicates', '/merge-duplicates', Colors.purple),
                         _buildCompactActionCard(Icons.notifications, 'Duplicate\nAlerts', '/duplicate-notifications', Colors.pink),
 
-                        // Resolution & Verification
+                        // Resolution & Verification - CHANGED: Now shows Verify Resolutions
                         _buildCompactActionCard(Icons.verified, 'Verify\nResolutions', '/resolution-detection', Colors.green),
 
                         // ===== ADDED: Zones Map Button =====
@@ -557,6 +571,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             _buildCompactHealthRow('Staff', '$_totalStaff', Icons.business, Colors.purple),
                             const SizedBox(height: 12),
                             _buildCompactHealthRow('Pending Approvals', '$_pendingApprovals', Icons.hourglass_empty, Colors.red),
+                            // ADDED: Show Verified count in health section
+                            const SizedBox(height: 12),
+                            _buildCompactHealthRow('Verified Complaints', '$_verifiedComplaints', Icons.verified, Colors.green),
+                            const SizedBox(height: 12),
+                            _buildCompactHealthRow('Pending Resolutions', '$_pendingResolutions', Icons.pending_actions, Colors.orange),
                           ],
                         ),
                       ),
@@ -667,7 +686,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
             _buildNavItem(Icons.dashboard, 'Home', Colors.purple, () {}),
-            _buildNavItem(Icons.map, 'Map', Colors.teal, _navigateToZonesMap), // ===== ADDED =====
+            _buildNavItem(Icons.map, 'Map', Colors.teal, _navigateToZonesMap),
             _buildNavItem(Icons.people, 'Users', Colors.grey, () {
               Navigator.pushNamed(context, '/user-management');
             }),
@@ -677,8 +696,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             _buildNavItem(Icons.report, 'Reports', Colors.grey, () {
               Navigator.pushNamed(context, '/reports');
             }),
-            _buildNavItem(Icons.approval, 'Approve', Colors.green, () {
-              Navigator.pushNamed(context, '/complaint-approval');
+            _buildNavItem(Icons.verified, 'Verify', Colors.green, () {
+              Navigator.pushNamed(context, '/resolution-detection');
             }),
           ],
         ),

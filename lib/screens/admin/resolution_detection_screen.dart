@@ -12,24 +12,37 @@ class ResolutionDetectionScreen extends StatefulWidget {
   State<ResolutionDetectionScreen> createState() => _ResolutionDetectionScreenState();
 }
 
-class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen> {
+class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen>
+    with SingleTickerProviderStateMixin {
   final ResolutionService _resolutionService = ResolutionService();
   final AuthService _authService = AuthService();
 
-  List<Resolution> _submissions = [];
+  List<Resolution> _allSubmissions = [];
+  List<Resolution> _pendingSubmissions = [];
+  List<Resolution> _verifiedSubmissions = [];
+  List<Resolution> _flaggedSubmissions = [];
+
   bool _isLoading = true;
   String? _errorMessage;
+  late TabController _tabController;
 
-  int _pendingSubmissions = 0;
-  int _verifiedSubmissions = 0;
-  int _flaggedSubmissions = 0;
+  int _pendingCount = 0;
+  int _verifiedCount = 0;
+  int _flaggedCount = 0;
   int _totalResolutions = 0;
   int _thisMonth = 0;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 3, vsync: this);
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -61,16 +74,39 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen> {
     });
 
     try {
-      print('📡 Loading pending resolutions...');
-      final submissions = await _resolutionService.getPendingResolutions();
-      print('✅ Loaded ${submissions.length} pending resolutions');
+      print('📡 Loading all resolutions...');
+
+      // Load all resolutions from API
+      final allResolutions = await _resolutionService.getPendingResolutions();
+
+      // Also load verified and flagged from the all endpoint if available
+      final allData = await _resolutionService.getAllResolutions(pageSize: 100);
+      final allFromApi = allData['Resolutions'] ?? [];
+
+      // Combine and categorize
+      List<Resolution> combined = List.from(allResolutions);
+
+      // Add any from all endpoint that aren't already in pending
+      for (var res in allFromApi) {
+        if (!combined.any((r) => r.id == res['Id'])) {
+          combined.add(Resolution.fromJson(res));
+        }
+      }
+
+      // Categorize by status
+      _pendingSubmissions = combined.where((s) => s.status.toLowerCase() == 'pending').toList();
+      _verifiedSubmissions = combined.where((s) => s.status.toLowerCase() == 'verified').toList();
+      _flaggedSubmissions = combined.where((s) => s.status.toLowerCase() == 'flagged').toList();
+      _allSubmissions = combined;
+
+      _pendingCount = _pendingSubmissions.length;
+      _verifiedCount = _verifiedSubmissions.length;
+      _flaggedCount = _flaggedSubmissions.length;
+
+      print('✅ Loaded: Pending: $_pendingCount, Verified: $_verifiedCount, Flagged: $_flaggedCount');
 
       if (mounted) {
         setState(() {
-          _submissions = submissions;
-          _pendingSubmissions = submissions.where((s) => s.status == 'Pending').length;
-          _verifiedSubmissions = submissions.where((s) => s.status == 'Verified').length;
-          _flaggedSubmissions = submissions.where((s) => s.status == 'Flagged').length;
           _isLoading = false;
         });
       }
@@ -321,7 +357,7 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading && _submissions.isEmpty) {
+    if (_isLoading && _allSubmissions.isEmpty) {
       return Scaffold(
         backgroundColor: Colors.grey[50],
         appBar: AppBar(
@@ -340,7 +376,7 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen> {
       );
     }
 
-    if (_errorMessage != null && _submissions.isEmpty) {
+    if (_errorMessage != null && _allSubmissions.isEmpty) {
       return Scaffold(
         backgroundColor: Colors.grey[50],
         appBar: AppBar(
@@ -410,6 +446,17 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen> {
           'Resolution Verification',
           style: TextStyle(color: Colors.grey[900]),
         ),
+        bottom: TabBar(
+          controller: _tabController,
+          labelColor: Colors.blue,
+          unselectedLabelColor: Colors.grey,
+          indicatorColor: Colors.blue,
+          tabs: [
+            Tab(text: 'Pending ($_pendingCount)'),
+            Tab(text: 'Verified ($_verifiedCount)'),
+            Tab(text: 'Flagged ($_flaggedCount)'),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.grey),
@@ -436,15 +483,15 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen> {
             child: Row(
               children: [
                 Expanded(
-                  child: _buildStatCard('$_pendingSubmissions', 'Pending', Colors.orange),
+                  child: _buildStatCard('$_pendingCount', 'Pending', Colors.orange),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: _buildStatCard('$_verifiedSubmissions', 'Verified', Colors.green),
+                  child: _buildStatCard('$_verifiedCount', 'Verified', Colors.green),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: _buildStatCard('$_flaggedSubmissions', 'Flagged', Colors.red),
+                  child: _buildStatCard('$_flaggedCount', 'Flagged', Colors.red),
                 ),
               ],
             ),
@@ -468,42 +515,67 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen> {
             ),
           ),
 
-          // Empty State or List
+          // Tab Bar View
           Expanded(
-            child: _submissions.isEmpty
-                ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.verified_outlined, size: 64, color: Colors.grey[400]),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No pending resolutions',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[800]),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'All resolved complaints have been verified',
-                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Total resolved this month: $_thisMonth',
-                    style: TextStyle(fontSize: 14, color: Colors.blue[600]),
-                  ),
-                ],
-              ),
-            )
-                : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: _submissions.length,
-              itemBuilder: (context, index) {
-                return _buildSubmissionCard(_submissions[index]);
-              },
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                // Pending Tab
+                _buildSubmissionList(_pendingSubmissions, isPendingTab: true),
+                // Verified Tab
+                _buildSubmissionList(_verifiedSubmissions, isPendingTab: false),
+                // Flagged Tab
+                _buildSubmissionList(_flaggedSubmissions, isPendingTab: false),
+              ],
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSubmissionList(List<Resolution> submissions, {bool isPendingTab = true}) {
+    if (submissions.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              isPendingTab ? Icons.pending_actions :
+              (submissions == _verifiedSubmissions ? Icons.verified : Icons.flag),
+              size: 64,
+              color: Colors.grey[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              isPendingTab ? 'No pending resolutions' :
+              (submissions == _verifiedSubmissions ? 'No verified resolutions' : 'No flagged resolutions'),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[800]),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              isPendingTab ? 'All resolved complaints have been verified' :
+              (submissions == _verifiedSubmissions ? 'Verified resolutions will appear here' : 'Flagged resolutions will appear here'),
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+            ),
+            if (isPendingTab) ...[
+              const SizedBox(height: 16),
+              Text(
+                'Total resolved this month: $_thisMonth',
+                style: TextStyle(fontSize: 14, color: Colors.blue[600]),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: submissions.length,
+      itemBuilder: (context, index) {
+        return _buildSubmissionCard(submissions[index]);
+      },
     );
   }
 

@@ -319,4 +319,98 @@ class ResolutionService {
 
     return '$baseUrl/$cleanPath';
   }
+  // Add this method to get verified resolutions
+  // Future<List<Resolution>> getVerifiedResolutions() async {
+  //   try {
+  //     final response = await http.get(
+  //       Uri.parse('${ApiConfig.baseUrl}/resolutions/all?status=verified&pageSize=50'),
+  //       headers: ApiConfig.getHeaders(),
+  //     ).timeout(const Duration(seconds: 10));
+  //
+  //     if (response.statusCode == 200) {
+  //       final data = json.decode(response.body);
+  //       final resolutions = data['Resolutions'] ?? [];
+  //       return resolutions.map((json) => Resolution.fromJson(json)).toList();
+  //     }
+  //     return [];
+  //   } catch (e) {
+  //     print('❌ Error loading verified resolutions: $e');
+  //     return [];
+  //   }
+  // }
+  // =====================================================
+// 9. GET VERIFIED RESOLUTIONS
+// =====================================================
+
+  /// Get verified resolutions
+  Future<List<Resolution>> getVerifiedResolutions() async {
+    try {
+      final url = '${ApiConfig.baseUrl}/resolutions/all?status=verified&pageSize=100';
+      print('📡 Fetching verified resolutions from: $url');
+
+      final response = await http.get(
+        Uri.parse(url),
+        headers: ApiConfig.getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      print('📡 Response status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+
+        List<dynamic> resolutionsList = [];
+
+        if (data['Resolutions'] != null && data['Resolutions'] is List) {
+          resolutionsList = data['Resolutions'];
+        } else if (data is List) {
+          resolutionsList = data;
+        }
+
+        print('✅ Found ${resolutionsList.length} verified resolutions');
+        return resolutionsList.map((json) => Resolution.fromJson(json)).toList();
+      }
+      return [];
+    } catch (e) {
+      print('❌ Error loading verified resolutions: $e');
+      return [];
+    }
+  }
+
+// =====================================================
+// 10. GET FLAGGED RESOLUTIONS
+// =====================================================
+
+  /// Get flagged resolutions
+  Future<List<Resolution>> getFlaggedResolutions() async {
+    try {
+      final url = '${ApiConfig.baseUrl}/resolutions/all?status=flagged&pageSize=100';
+      print('📡 Fetching flagged resolutions from: $url');
+
+      final response = await http.get(
+        Uri.parse(url),
+        headers: ApiConfig.getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      print('📡 Response status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+
+        List<dynamic> resolutionsList = [];
+
+        if (data['Resolutions'] != null && data['Resolutions'] is List) {
+          resolutionsList = data['Resolutions'];
+        } else if (data is List) {
+          resolutionsList = data;
+        }
+
+        print('✅ Found ${resolutionsList.length} flagged resolutions');
+        return resolutionsList.map((json) => Resolution.fromJson(json)).toList();
+      }
+      return [];
+    } catch (e) {
+      print('❌ Error loading flagged resolutions: $e');
+      return [];
+    }
+  }
 }
