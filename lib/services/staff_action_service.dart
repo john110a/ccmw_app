@@ -1,4 +1,4 @@
-// lib/services/staff_action_service.dart - FULLY UPDATED VERSION
+// lib/services/staff_action_service.dart - UPDATED WITH FLAGGED COMPLAINTS
 
 import 'dart:convert';
 import 'dart:io';
@@ -567,6 +567,179 @@ class StaffActionService {
     } catch (e) {
       print('❌ Error loading timeline: $e');
       throw Exception('Network error: $e');
+    }
+  }
+
+  // =====================================================
+  // 7. FLAGGED COMPLAINTS MANAGEMENT (ADDED)
+  // =====================================================
+
+  /// Get flagged complaints for staff
+  Future<List<Map<String, dynamic>>> getFlaggedComplaints(String staffId) async {
+    try {
+      final url = '${ApiConfig.baseUrl}/staff-actions/$staffId/flagged-complaints';
+      print('📡 Fetching flagged complaints from: $url');
+
+      final response = await http.get(
+        Uri.parse(url),
+        headers: ApiConfig.getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      print('📡 Response status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['complaints'] != null) {
+          return List<Map<String, dynamic>>.from(data['complaints']);
+        } else if (data is List) {
+          return List<Map<String, dynamic>>.from(data);
+        }
+        return [];
+      } else if (response.statusCode == 404) {
+        print('⚠️ Flagged complaints endpoint not found (404)');
+        return [];
+      } else {
+        print('⚠️ Failed to fetch flagged complaints: ${response.statusCode}');
+        return [];
+      }
+    } catch (e) {
+      print('❌ Error fetching flagged complaints: $e');
+      return [];
+    }
+  }
+
+  /// Re-complete a flagged complaint
+  Future<bool> reCompleteComplaint(String complaintId, String staffId, String notes) async {
+    try {
+      final url = '${ApiConfig.baseUrl}/staff-actions/$complaintId/recomplete';
+      print('📡 Re-completing complaint at: $url');
+      print('📡 Staff ID: $staffId');
+      print('📡 Notes: $notes');
+
+      final response = await http.post(
+        Uri.parse(url),
+        headers: ApiConfig.getHeaders(),
+        body: json.encode({
+          'staffId': staffId,
+          'notes': notes,
+          'recompletedAt': DateTime.now().toIso8601String(),
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      print('📡 Response status: ${response.statusCode}');
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = json.decode(response.body);
+        if (data['success'] == true) {
+          print('✅ Complaint re-completed successfully');
+          return true;
+        }
+        return false;
+      } else if (response.statusCode == 404) {
+        print('⚠️ Re-complete endpoint not found (404)');
+        return await _reCompleteComplaintFallback(complaintId, staffId, notes);
+      } else {
+        print('❌ Failed to re-complete: ${response.statusCode}');
+        return false;
+      }
+    } catch (e) {
+      print('❌ Error re-completing complaint: $e');
+      return await _reCompleteComplaintFallback(complaintId, staffId, notes);
+    }
+  }
+
+  /// Fallback method for re-completing complaints (if primary endpoint doesn't exist)
+  Future<bool> _reCompleteComplaintFallback(String complaintId, String staffId, String notes) async {
+    try {
+      final url = '${ApiConfig.baseUrl}/complaints/$complaintId/recomplete';
+      print('📡 Trying fallback endpoint: $url');
+
+      final response = await http.post(
+        Uri.parse(url),
+        headers: ApiConfig.getHeaders(),
+        body: json.encode({
+          'staffId': staffId,
+          'notes': notes,
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        print('✅ Complaint re-completed via fallback');
+        return true;
+      } else {
+        print('⚠️ Fallback also failed: ${response.statusCode}');
+        return false;
+      }
+    } catch (e) {
+      print('❌ Fallback error: $e');
+      return false;
+    }
+  }
+
+  /// Get flagged complaint details
+  Future<Map<String, dynamic>?> getFlaggedComplaintDetails(String complaintId) async {
+    try {
+      final url = '${ApiConfig.baseUrl}/complaints/$complaintId/flag-details';
+      print('📡 Fetching flagged complaint details from: $url');
+
+      final response = await http.get(
+        Uri.parse(url),
+        headers: ApiConfig.getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        return null;
+      }
+    } catch (e) {
+      print('❌ Error fetching flagged complaint details: $e');
+      return null;
+    }
+  }
+
+  /// Submit additional evidence for flagged complaint
+  Future<bool> submitFlaggedEvidence(String complaintId, String staffId, String evidence, {List<File>? photos}) async {
+    try {
+      final url = '${ApiConfig.baseUrl}/staff-actions/$complaintId/submit-evidence';
+      print('📡 Submitting evidence for flagged complaint at: $url');
+
+      if (photos != null && photos.isNotEmpty) {
+        // Multipart request with photos
+        var request = http.MultipartRequest('POST', Uri.parse(url));
+        request.headers.addAll(ApiConfig.getHeaders());
+        request.fields['staffId'] = staffId;
+        request.fields['evidence'] = evidence;
+
+        for (int i = 0; i < photos.length; i++) {
+          final multipartFile = await http.MultipartFile.fromPath(
+            'photo_$i',
+            photos[i].path,
+            contentType: MediaType('image', 'jpeg'),
+          );
+          request.files.add(multipartFile);
+        }
+
+        final streamedResponse = await request.send().timeout(const Duration(seconds: 30));
+        final response = await http.Response.fromStream(streamedResponse);
+
+        return response.statusCode == 200 || response.statusCode == 201;
+      } else {
+        // JSON request without photos
+        final response = await http.post(
+          Uri.parse(url),
+          headers: ApiConfig.getHeaders(),
+          body: json.encode({
+            'staffId': staffId,
+            'evidence': evidence,
+          }),
+        ).timeout(const Duration(seconds: 10));
+
+        return response.statusCode == 200 || response.statusCode == 201;
+      }
+    } catch (e) {
+      print('❌ Error submitting evidence: $e');
+      return false;
     }
   }
 }

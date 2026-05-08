@@ -20,7 +20,7 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen>
   List<Resolution> _allSubmissions = [];
   List<Resolution> _pendingSubmissions = [];
   List<Resolution> _verifiedSubmissions = [];
-  List<Resolution> _flaggedSubmissions = [];
+  List<Map<String, dynamic>> _flaggedComplaints = [];
 
   bool _isLoading = true;
   String? _errorMessage;
@@ -49,6 +49,7 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen>
     await Future.wait([
       _loadSubmissions(),
       _loadStats(),
+      _loadFlaggedComplaints(),
     ]);
   }
 
@@ -59,10 +60,34 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen>
         setState(() {
           _totalResolutions = stats['TotalResolutions'] ?? 0;
           _thisMonth = stats['ThisMonth'] ?? 0;
+          _pendingCount = stats['PendingResolutions'] ?? 0;
+          _verifiedCount = stats['VerifiedResolutions'] ?? 0;
+          _flaggedCount = stats['FlaggedResolutions'] ?? 0;
         });
       }
     } catch (e) {
       print('❌ Error loading stats: $e');
+    }
+  }
+
+  Future<void> _loadFlaggedComplaints() async {
+    try {
+      final flaggedComplaints = await _resolutionService.getFlaggedComplaints();
+      if (mounted) {
+        // Debug: Print first complaint to see field names
+        if (flaggedComplaints.isNotEmpty) {
+          print('=== Flagged Complaint Data ===');
+          print(flaggedComplaints[0]);
+          print('Keys: ${flaggedComplaints[0].keys.toList()}');
+        }
+        setState(() {
+          _flaggedComplaints = flaggedComplaints;
+          _flaggedCount = flaggedComplaints.length;
+        });
+        print('✅ Loaded $_flaggedCount flagged complaints');
+      }
+    } catch (e) {
+      print('❌ Error loading flagged complaints: $e');
     }
   }
 
@@ -76,40 +101,29 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen>
     try {
       print('📡 Loading all resolutions...');
 
-      // Load all resolutions from API
       final allResolutions = await _resolutionService.getPendingResolutions();
-
-      // Also load verified and flagged from the all endpoint if available
       final allData = await _resolutionService.getAllResolutions(pageSize: 100);
       final allFromApi = allData['Resolutions'] ?? [];
 
-      // Combine and categorize
       List<Resolution> combined = List.from(allResolutions);
 
-      // Add any from all endpoint that aren't already in pending
       for (var res in allFromApi) {
         if (!combined.any((r) => r.id == res['Id'])) {
           combined.add(Resolution.fromJson(res));
         }
       }
 
-      // Categorize by status
       _pendingSubmissions = combined.where((s) => s.status.toLowerCase() == 'pending').toList();
       _verifiedSubmissions = combined.where((s) => s.status.toLowerCase() == 'verified').toList();
-      _flaggedSubmissions = combined.where((s) => s.status.toLowerCase() == 'flagged').toList();
       _allSubmissions = combined;
-
-      _pendingCount = _pendingSubmissions.length;
-      _verifiedCount = _verifiedSubmissions.length;
-      _flaggedCount = _flaggedSubmissions.length;
-
-      print('✅ Loaded: Pending: $_pendingCount, Verified: $_verifiedCount, Flagged: $_flaggedCount');
 
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
       }
+
+      print('✅ Loaded: Pending: ${_pendingSubmissions.length}, Verified: ${_verifiedSubmissions.length}');
     } catch (e) {
       print('❌ Error loading submissions: $e');
       if (mounted) {
@@ -132,7 +146,7 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen>
 
       if (!mounted) return;
 
-      await _loadSubmissions();
+      await _loadData();
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -168,7 +182,7 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen>
 
       if (!mounted) return;
 
-      await _loadSubmissions();
+      await _loadData();
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -187,6 +201,124 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen>
         );
       }
     }
+  }
+
+  Future<void> _markAsGenuine(Map<String, dynamic> complaint) async {
+    try {
+      setState(() => _isLoading = true);
+
+      final adminId = await _authService.getUserId();
+      final complaintId = complaint['ComplaintId'] ?? complaint['complaintId'];
+
+      final success = await _resolutionService.verifyGenuineComplaint(
+        complaintId,
+        adminId: adminId,
+        notes: 'Admin reviewed and marked as genuine',
+      );
+
+      if (success && mounted) {
+        await _loadData();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Complaint marked as genuine'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _confirmAsFake(Map<String, dynamic> complaint) async {
+    final reasonController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning, color: Colors.red, size: 28),
+            SizedBox(width: 12),
+            Text('Confirm Fake Complaint'),
+          ],
+        ),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('This will give the citizen a strike. After 3 strikes, they will be banned.'),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: reasonController,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  hintText: 'Reason for marking as fake...',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) => value?.isEmpty == true ? 'Please enter a reason' : null,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (formKey.currentState?.validate() != true) return;
+              Navigator.pop(context);
+
+              setState(() => _isLoading = true);
+              try {
+                final adminId = await _authService.getUserId();
+                final complaintId = complaint['ComplaintId'] ?? complaint['complaintId'];
+
+                final result = await _resolutionService.markAsFakeComplaint(
+                  complaintId,
+                  adminId: adminId,
+                  reason: reasonController.text,
+                  notes: 'Admin confirmed as fake complaint',
+                );
+
+                if (result['success'] == true && mounted) {
+                  await _loadData();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(result['message'] ?? 'Complaint marked as fake'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+                  );
+                }
+              } finally {
+                if (mounted) setState(() => _isLoading = false);
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Confirm Fake'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showFullScreenImage(String imageUrl) {
@@ -355,9 +487,207 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen>
     );
   }
 
+  // FIXED: Build flagged complaint card with PascalCase support
+  Widget _buildFlaggedComplaintCard(Map<String, dynamic> complaint) {
+    // Support both PascalCase (backend) and camelCase (fallback)
+    final complaintId = complaint['ComplaintId'] ?? complaint['complaintId'];
+    final complaintNumber = complaint['ComplaintNumber'] ?? complaint['complaintNumber'] ?? 'N/A';
+    final title = complaint['Title'] ?? complaint['title'] ?? 'No Title';
+    final description = complaint['Description'] ?? complaint['description'] ?? 'No description';
+    final location = complaint['Location'] ?? complaint['location'] ?? 'Unknown Location';
+    final category = complaint['Category'] ?? complaint['category'] ?? 'General';
+    final citizenName = complaint['CitizenName'] ?? complaint['citizenName'] ?? 'Unknown';
+    final submittedAt = complaint['SubmittedAt'] ?? complaint['submittedAt'] ?? 'Unknown';
+    final beforePhoto = complaint['BeforePhotoUrl'] ?? complaint['beforePhotoUrl'];
+    final afterPhoto = complaint['AfterPhotoUrl'] ?? complaint['afterPhotoUrl'];
+    final flagReason = complaint['FlagReason'] ?? complaint['flagReason'] ?? 'Flagged for review';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.red.withOpacity(0.3), width: 2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.red.withOpacity(0.1),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(12),
+                topRight: Radius.circular(12),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      complaintNumber,
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.blue),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text(
+                        'FLAGGED',
+                        style: TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  title,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(category, style: const TextStyle(fontSize: 12)),
+                    ),
+                    const SizedBox(width: 8),
+                    const Icon(Icons.location_on, size: 14, color: Colors.grey),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(location, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          // Body
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Photo Comparison', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildPhotoComparison('BEFORE', beforePhoto, Colors.red),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildPhotoComparison('AFTER', afterPhoto, Colors.red),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                const Text('Description', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[50],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    description,
+                    style: const TextStyle(fontSize: 14, color: Colors.black87),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.red[200]!),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.flag, color: Colors.red, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          flagReason,
+                          style: const TextStyle(fontSize: 12, color: Colors.red),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                Row(
+                  children: [
+                    const Icon(Icons.person, size: 16, color: Colors.grey),
+                    const SizedBox(width: 6),
+                    Text('Citizen: $citizenName', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
+                    const SizedBox(width: 6),
+                    Text('Submitted: $submittedAt', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _markAsGenuine(complaint),
+                        icon: const Icon(Icons.verified, size: 18),
+                        label: const Text('Mark Genuine'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.green,
+                          side: const BorderSide(color: Colors.green),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => _confirmAsFake(complaint),
+                        icon: const Icon(Icons.warning, size: 18),
+                        label: const Text('Confirm Fake'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (_isLoading && _allSubmissions.isEmpty) {
+    if (_isLoading && _allSubmissions.isEmpty && _flaggedComplaints.isEmpty) {
       return Scaffold(
         backgroundColor: Colors.grey[50],
         appBar: AppBar(
@@ -454,7 +784,7 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen>
           tabs: [
             Tab(text: 'Pending ($_pendingCount)'),
             Tab(text: 'Verified ($_verifiedCount)'),
-            Tab(text: 'Flagged ($_flaggedCount)'),
+            Tab(text: 'Flagged ($_flaggedCount)', icon: const Icon(Icons.flag, size: 16)),
           ],
         ),
         actions: [
@@ -476,28 +806,20 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen>
       ),
       body: Column(
         children: [
-          // Stats Row
           Container(
             padding: const EdgeInsets.all(16),
             color: Colors.white,
             child: Row(
               children: [
-                Expanded(
-                  child: _buildStatCard('$_pendingCount', 'Pending', Colors.orange),
-                ),
+                Expanded(child: _buildStatCard('$_pendingCount', 'Pending', Colors.orange)),
                 const SizedBox(width: 12),
-                Expanded(
-                  child: _buildStatCard('$_verifiedCount', 'Verified', Colors.green),
-                ),
+                Expanded(child: _buildStatCard('$_verifiedCount', 'Verified', Colors.green)),
                 const SizedBox(width: 12),
-                Expanded(
-                  child: _buildStatCard('$_flaggedCount', 'Flagged', Colors.red),
-                ),
+                Expanded(child: _buildStatCard('$_flaggedCount', 'Flagged', Colors.red)),
               ],
             ),
           ),
 
-          // Info Banner
           Container(
             padding: const EdgeInsets.all(16),
             color: Colors.blue[50],
@@ -507,7 +829,7 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen>
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'Review before/after photos and verify complaint resolutions manually.',
+                    'Review before/after photos and verify complaint resolutions manually. Flagged complaints need admin review.',
                     style: TextStyle(fontSize: 12, color: Colors.blue[900]),
                   ),
                 ),
@@ -515,22 +837,49 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen>
             ),
           ),
 
-          // Tab Bar View
           Expanded(
             child: TabBarView(
               controller: _tabController,
               children: [
-                // Pending Tab
                 _buildSubmissionList(_pendingSubmissions, isPendingTab: true),
-                // Verified Tab
                 _buildSubmissionList(_verifiedSubmissions, isPendingTab: false),
-                // Flagged Tab
-                _buildSubmissionList(_flaggedSubmissions, isPendingTab: false),
+                _buildFlaggedComplaintsList(),
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildFlaggedComplaintsList() {
+    if (_flaggedComplaints.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.flag, size: 64, color: Colors.grey),
+            SizedBox(height: 16),
+            Text(
+              'No flagged complaints',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Flagged complaints that need review will appear here',
+              style: TextStyle(fontSize: 14, color: Colors.grey),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _flaggedComplaints.length,
+      itemBuilder: (context, index) {
+        return _buildFlaggedComplaintCard(_flaggedComplaints[index]);
+      },
     );
   }
 
@@ -541,21 +890,18 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen>
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              isPendingTab ? Icons.pending_actions :
-              (submissions == _verifiedSubmissions ? Icons.verified : Icons.flag),
+              isPendingTab ? Icons.pending_actions : Icons.verified,
               size: 64,
               color: Colors.grey[400],
             ),
             const SizedBox(height: 16),
             Text(
-              isPendingTab ? 'No pending resolutions' :
-              (submissions == _verifiedSubmissions ? 'No verified resolutions' : 'No flagged resolutions'),
+              isPendingTab ? 'No pending resolutions' : 'No verified resolutions',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[800]),
             ),
             const SizedBox(height: 8),
             Text(
-              isPendingTab ? 'All resolved complaints have been verified' :
-              (submissions == _verifiedSubmissions ? 'Verified resolutions will appear here' : 'Flagged resolutions will appear here'),
+              isPendingTab ? 'All resolved complaints have been verified' : 'Verified resolutions will appear here',
               style: TextStyle(fontSize: 14, color: Colors.grey[600]),
             ),
             if (isPendingTab) ...[
@@ -593,8 +939,7 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen>
   }
 
   Widget _buildSubmissionCard(Resolution submission) {
-    final statusColor = submission.status == 'Pending' ? Colors.orange :
-    submission.status == 'Verified' ? Colors.green : Colors.red;
+    final statusColor = submission.status == 'Pending' ? Colors.orange : Colors.green;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
@@ -606,7 +951,6 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -661,7 +1005,6 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen>
             ),
           ),
 
-          // Body
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -713,30 +1056,6 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen>
                   ],
                 ),
 
-                if (submission.status == 'Flagged') ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.red[50],
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.red[200]!),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.flag, color: Colors.red, size: 20),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            submission.flagReason ?? 'No reason provided',
-                            style: const TextStyle(fontSize: 12, color: Colors.red),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-
                 if (submission.status == 'Pending') ...[
                   const SizedBox(height: 16),
                   Row(
@@ -778,7 +1097,6 @@ class _ResolutionDetectionScreenState extends State<ResolutionDetectionScreen>
   }
 
   Widget _buildPhotoComparison(String label, String? imageUrl, Color statusColor) {
-    // Generate full URL for the image
     String fullImageUrl = '';
     if (imageUrl != null && imageUrl.isNotEmpty) {
       fullImageUrl = ImageUtils.getFullImageUrl(imageUrl);

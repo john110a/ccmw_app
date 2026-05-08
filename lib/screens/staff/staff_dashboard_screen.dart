@@ -1,4 +1,4 @@
-// lib/screens/staff/staff_dashboard_screen.dart - UPDATED
+// lib/screens/staff/staff_dashboard_screen.dart - UPDATED with Flagged Complaints
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -26,6 +26,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   // Data variables
   List<Map<String, dynamic>> _activeTasks = [];
   List<Map<String, dynamic>> _nearbyComplaints = [];
+  List<Map<String, dynamic>> _flaggedComplaints = []; // ADDED: Flagged complaints list
   bool _isLoading = true;
   bool _isUpdatingLocation = false;
   String? _errorMessage;
@@ -53,11 +54,10 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
   void initState() {
     super.initState();
     _loadStaffDashboard();
-    _loadStaffPerformance(); // Add this to load performance metrics
+    _loadStaffPerformance();
     _getCurrentLocation();
   }
 
-  // NEW: Load staff performance from performance API
   Future<void> _loadStaffPerformance() async {
     try {
       final staffId = await _authService.getStaffId();
@@ -138,6 +138,103 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
     }
   }
 
+  // ADDED: Load flagged complaints
+  Future<void> _loadFlaggedComplaints() async {
+    if (_staffId == null) return;
+    try {
+      final response = await _staffActionService.getFlaggedComplaints(_staffId!);
+      if (mounted) {
+        setState(() {
+          _flaggedComplaints = List<Map<String, dynamic>>.from(response ?? []);
+        });
+        print('✅ Loaded ${_flaggedComplaints.length} flagged complaints');
+      }
+    } catch (e) {
+      print('❌ Error loading flagged complaints: $e');
+    }
+  }
+
+  // ADDED: Re-complete flagged complaint
+  Future<void> _reCompleteFlaggedComplaint(Map<String, dynamic> complaint) async {
+    final notesController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.replay, color: Colors.orange),
+            const SizedBox(width: 8),
+            const Text('Re-complete Complaint'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Complaint: ${complaint['title'] ?? 'N/A'}'),
+            const SizedBox(height: 8),
+            Text('Complaint Number: ${complaint['complaintNumber'] ?? 'N/A'}'),
+            const SizedBox(height: 8),
+            const Text(
+              'This complaint was flagged for review. Please provide additional evidence or update the resolution.',
+              style: TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 16),
+            const Text('Additional Notes:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: notesController,
+              decoration: const InputDecoration(
+                hintText: 'Enter additional details...',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 3,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              setState(() => _isLoading = true);
+              try {
+                final success = await _staffActionService.reCompleteComplaint(
+                  complaint['complaintId'],
+                  _staffId!,
+                  notesController.text.isNotEmpty ? notesController.text : 'Re-completed after flag review',
+                );
+                if (success && mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Complaint re-completed successfully'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                  await _loadStaffDashboard();
+                  await _loadFlaggedComplaints();
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+                  );
+                }
+              } finally {
+                if (mounted) setState(() => _isLoading = false);
+              }
+            },
+            child: const Text('Submit Re-completion'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _loadStaffDashboard() async {
     setState(() => _isLoading = true);
 
@@ -157,9 +254,6 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
       _departmentName = data['DepartmentName'] ?? await _authService.getDepartmentName() ?? 'Not Assigned';
       _role = data['Role'] ?? 'Field Staff';
       _employeeId = data['EmployeeId'];
-
-      // Don't override performance score from dashboard data (use performance API instead)
-      // _performanceScore = (data['PerformanceScore'] ?? 0.0).toDouble();
 
       // Extract statistics
       final stats = data['Statistics'] ?? {};
@@ -201,6 +295,9 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           'isOverdue': task['IsOverdue'],
         };
       }).toList();
+
+      // ADDED: Load flagged complaints after loading tasks
+      await _loadFlaggedComplaints();
 
       print('✅ Dashboard loaded: $_staffName, Dept: $_departmentName');
       print('📊 Stats - Total: $_totalAssignments, Completed: $_completedAssignments, Pending: $_pendingAssignments');
@@ -273,7 +370,7 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
 
     if (result == true && mounted) {
       _loadStaffDashboard();
-      _loadStaffPerformance(); // Refresh performance after task update
+      _loadStaffPerformance();
     }
   }
 
@@ -438,6 +535,32 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
                   ],
                 ),
               ),
+
+              // ADDED: Flagged Complaints Section
+              if (_flaggedComplaints.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.flag, color: Colors.red[700], size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Flagged Complaints (${_flaggedComplaints.length})',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      ..._flaggedComplaints.map((complaint) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _buildFlaggedComplaintCard(complaint),
+                      )),
+                    ],
+                  ),
+                ),
 
               // Nearby Complaints
               if (_nearbyComplaints.isNotEmpty)
@@ -619,6 +742,91 @@ class _StaffDashboardScreenState extends State<StaffDashboardScreen> {
           const SizedBox(height: 4),
           Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
         ],
+      ),
+    );
+  }
+
+  // ADDED: Flagged complaint card widget
+  Widget _buildFlaggedComplaintCard(Map<String, dynamic> complaint) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: Colors.red.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.flag, color: Colors.red[700], size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    complaint['title'] ?? 'No Title',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.red[100],
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    complaint['flagReason'] ?? 'Flagged',
+                    style: TextStyle(fontSize: 11, color: Colors.red[700], fontWeight: FontWeight.w500),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              complaint['description'] ?? 'No description',
+              style: const TextStyle(fontSize: 13),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(Icons.location_on, size: 14, color: Colors.grey[600]),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    complaint['locationAddress'] ?? 'No address',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(Icons.priority_high, size: 14, color: Colors.orange[600]),
+                const SizedBox(width: 4),
+                Text(
+                  'Priority: ${complaint['priority'] ?? 'Medium'}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+                const Spacer(),
+                ElevatedButton.icon(
+                  onPressed: () => _reCompleteFlaggedComplaint(complaint),
+                  icon: const Icon(Icons.replay, size: 16),
+                  label: const Text('Re-complete'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    textStyle: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
