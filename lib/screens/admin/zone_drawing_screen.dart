@@ -6,9 +6,17 @@ import '../../utils/polygon_helper.dart';
 import '../../services/zone_service.dart';
 import '../../services/department_service.dart';
 import '../../models/department_model.dart';
+import '../../models/zone_model.dart';
 
 class ZoneDrawingScreen extends StatefulWidget {
-  const ZoneDrawingScreen({super.key});
+  final Zone? parentZone; // For creating sub-zones under a parent zone
+  final bool isSubZone;
+
+  const ZoneDrawingScreen({
+    super.key,
+    this.parentZone,
+    this.isSubZone = false,
+  });
 
   @override
   State<ZoneDrawingScreen> createState() => _ZoneDrawingScreenState();
@@ -17,6 +25,8 @@ class ZoneDrawingScreen extends StatefulWidget {
 class _ZoneDrawingScreenState extends State<ZoneDrawingScreen> {
   final TextEditingController _zoneNameController = TextEditingController();
   final TextEditingController _zoneNumberController = TextEditingController();
+  final TextEditingController _zoneCodeController = TextEditingController();
+  final TextEditingController _populationController = TextEditingController();
   final ZoneService _zoneService = ZoneService();
   final DepartmentService _departmentService = DepartmentService();
 
@@ -51,6 +61,11 @@ class _ZoneDrawingScreenState extends State<ZoneDrawingScreen> {
   void initState() {
     super.initState();
     _loadDepartments();
+
+    if (widget.isSubZone && widget.parentZone != null) {
+      _zoneNameController.text = '';
+      _zoneCodeController.text = 'SUB-';
+    }
   }
 
   Future<void> _loadDepartments() async {
@@ -92,9 +107,13 @@ class _ZoneDrawingScreenState extends State<ZoneDrawingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final String title = widget.isSubZone
+        ? 'Draw Sub-Zone in ${widget.parentZone?.zoneName ?? 'Zone'}'
+        : 'Draw Main Zone Boundary';
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(_polygonDrawn ? 'Zone Information' : 'Draw Zone Boundary'),
+        title: Text(_polygonDrawn ? 'Zone Information' : title),
         backgroundColor: Colors.blueAccent,
         actions: [
           if (_polygonDrawn)
@@ -211,6 +230,8 @@ class _ZoneDrawingScreenState extends State<ZoneDrawingScreen> {
   }
 
   Widget _buildFormView() {
+    final zoneTypeText = widget.isSubZone ? 'Sub-Zone' : 'Main Zone';
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -231,9 +252,9 @@ class _ZoneDrawingScreenState extends State<ZoneDrawingScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Polygon Drawn Successfully!',
-                        style: TextStyle(fontWeight: FontWeight.bold),
+                      Text(
+                        '$zoneTypeText Polygon Drawn Successfully!',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       Text(
                         'Area: ${PolygonHelper.calculateArea(_drawnPoints).toStringAsFixed(2)} sq km | Points: ${_drawnPoints.length}',
@@ -263,18 +284,47 @@ class _ZoneDrawingScreenState extends State<ZoneDrawingScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Zone Information',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  Text(
+                    '$zoneTypeText Information',
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 20),
+
+                  // Parent Zone Info (for sub-zones)
+                  if (widget.isSubZone && widget.parentZone != null)
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.blue[50],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.location_city, color: Colors.blue),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Parent Main Zone', style: TextStyle(fontSize: 12, color: Colors.blue)),
+                                Text(
+                                  widget.parentZone!.zoneName,
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
 
                   TextField(
                     style: const TextStyle(color: Colors.black),
                     controller: _zoneNameController,
                     decoration: const InputDecoration(
                       labelText: 'Zone Name',
-                      hintText: 'e.g., Saddar, Gulshan',
+                      hintText: 'e.g., Saddar, Gulshan, Sector F-6',
                       border: OutlineInputBorder(),
                       prefixIcon: Icon(Icons.place),
                     ),
@@ -286,9 +336,34 @@ class _ZoneDrawingScreenState extends State<ZoneDrawingScreen> {
                     controller: _zoneNumberController,
                     decoration: const InputDecoration(
                       labelText: 'Zone Number',
-                      hintText: 'e.g., 1, 2, 3',
+                      hintText: 'Unique number for this zone',
                       border: OutlineInputBorder(),
                       prefixIcon: Icon(Icons.numbers),
+                    ),
+                    keyboardType: TextInputType.number,
+                  ),
+                  const SizedBox(height: 16),
+
+                  TextField(
+                    style: const TextStyle(color: Colors.black),
+                    controller: _zoneCodeController,
+                    decoration: const InputDecoration(
+                      labelText: 'Zone Code (Optional)',
+                      hintText: 'e.g., SECTOR-F6, SUB-001',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.code),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  TextField(
+                    style: const TextStyle(color: Colors.black),
+                    controller: _populationController,
+                    decoration: const InputDecoration(
+                      labelText: 'Population (Optional)',
+                      hintText: 'Estimated population in this zone',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.people),
                     ),
                     keyboardType: TextInputType.number,
                   ),
@@ -297,136 +372,138 @@ class _ZoneDrawingScreenState extends State<ZoneDrawingScreen> {
             ),
           ),
 
-          const SizedBox(height: 24),
-
-          Card(
-            elevation: 2,
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Department Assignments',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                      ),
-                      ElevatedButton.icon(
-                        onPressed: _departmentsLoaded && !_isSaving ? _showAddDepartmentDialog : null,
-                        icon: const Icon(Icons.add),
-                        label: const Text('Add'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: (_departmentsLoaded && !_isSaving) ? Colors.blue : Colors.grey,
+          // Department assignments section (only for Main Zones)
+          if (!widget.isSubZone) ...[
+            const SizedBox(height: 24),
+            Card(
+              elevation: 2,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Department Assignments',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
+                        ElevatedButton.icon(
+                          onPressed: _departmentsLoaded && !_isSaving ? _showAddDepartmentDialog : null,
+                          icon: const Icon(Icons.add),
+                          label: const Text('Add'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: (_departmentsLoaded && !_isSaving) ? Colors.blue : Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
 
-                  if (_isLoadingDepartments)
-                    const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(32),
-                        child: CircularProgressIndicator(),
-                      ),
-                    )
-                  else if (_departmentError != null)
-                    Container(
-                      padding: const EdgeInsets.all(32),
-                      decoration: BoxDecoration(
-                        color: Colors.red[50],
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Column(
-                        children: [
-                          Icon(Icons.error_outline, size: 48, color: Colors.red[400]),
-                          const SizedBox(height: 8),
-                          Text(
-                            _departmentError!,
-                            style: TextStyle(color: Colors.red[700]),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 16),
-                          ElevatedButton(
-                            onPressed: _loadDepartments,
-                            child: const Text('Retry'),
-                          ),
-                        ],
-                      ),
-                    )
-                  else if (_departmentAssignments.isEmpty)
+                    if (_isLoadingDepartments)
+                      const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(32),
+                          child: CircularProgressIndicator(),
+                        ),
+                      )
+                    else if (_departmentError != null)
                       Container(
                         padding: const EdgeInsets.all(32),
                         decoration: BoxDecoration(
-                          color: Colors.grey[100],
+                          color: Colors.red[50],
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Column(
                           children: [
-                            Icon(Icons.business, size: 48, color: Colors.grey[400]),
+                            Icon(Icons.error_outline, size: 48, color: Colors.red[400]),
                             const SizedBox(height: 8),
                             Text(
-                              'No departments assigned',
-                              style: TextStyle(color: Colors.grey[600]),
+                              _departmentError!,
+                              style: TextStyle(color: Colors.red[700]),
+                              textAlign: TextAlign.center,
                             ),
-                            const Text('Click "Add" to assign departments to this zone'),
+                            const SizedBox(height: 16),
+                            ElevatedButton(
+                              onPressed: _loadDepartments,
+                              child: const Text('Retry'),
+                            ),
                           ],
                         ),
                       )
-                    else
-                      Column(
-                        children: _departmentAssignments.map((dept) => Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.all(12),
+                    else if (_departmentAssignments.isEmpty)
+                        Container(
+                          padding: const EdgeInsets.all(32),
                           decoration: BoxDecoration(
-                            color: (dept['color'] as Color).withOpacity(0.1),
+                            color: Colors.grey[100],
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: dept['color']),
                           ),
-                          child: Row(
+                          child: Column(
                             children: [
-                              Container(
-                                width: 16,
-                                height: 16,
-                                decoration: BoxDecoration(
-                                  color: dept['color'],
-                                  shape: BoxShape.circle,
-                                ),
+                              Icon(Icons.business, size: 48, color: Colors.grey[400]),
+                              const SizedBox(height: 8),
+                              Text(
+                                'No departments assigned',
+                                style: TextStyle(color: Colors.grey[600]),
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      dept['name'],
-                                      style: const TextStyle(fontWeight: FontWeight.w600),
-                                    ),
-                                    Text(
-                                      'Area included in zone',
-                                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.close, size: 20),
-                                onPressed: () {
-                                  setState(() {
-                                    _departmentAssignments.remove(dept);
-                                  });
-                                },
-                              ),
+                              const Text('Click "Add" to assign departments to this zone'),
                             ],
                           ),
-                        )).toList(),
-                      ),
-                ],
+                        )
+                      else
+                        Column(
+                          children: _departmentAssignments.map((dept) => Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: (dept['color'] as Color).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: dept['color']),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 16,
+                                  height: 16,
+                                  decoration: BoxDecoration(
+                                    color: dept['color'],
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        dept['name'],
+                                        style: const TextStyle(fontWeight: FontWeight.w600),
+                                      ),
+                                      Text(
+                                        'Area included in zone',
+                                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.close, size: 20),
+                                  onPressed: () {
+                                    setState(() {
+                                      _departmentAssignments.remove(dept);
+                                    });
+                                  },
+                                ),
+                              ],
+                            ),
+                          )).toList(),
+                        ),
+                  ],
+                ),
               ),
             ),
-          ),
+          ],
 
           const SizedBox(height: 32),
 
@@ -448,9 +525,9 @@ class _ZoneDrawingScreenState extends State<ZoneDrawingScreen> {
                 strokeWidth: 2,
               ),
             )
-                : const Text(
-              'Save Zone',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                : Text(
+              widget.isSubZone ? 'Create Sub-Zone' : 'Save Main Zone',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
           ),
         ],
@@ -600,6 +677,9 @@ class _ZoneDrawingScreenState extends State<ZoneDrawingScreen> {
     );
   }
 
+  // =====================================================
+  // FIXED: UPDATED _saveZone METHOD
+  // =====================================================
   Future<void> _saveZone() async {
     if (_zoneNameController.text.isEmpty) {
       _showError('Please enter zone name');
@@ -622,54 +702,105 @@ class _ZoneDrawingScreenState extends State<ZoneDrawingScreen> {
       return;
     }
 
-    // Create clean copy of points
-    final List<LatLng> validPoints = _drawnPoints
-        .map((point) => LatLng(point.latitude, point.longitude))
-        .toList();
+    final List<LatLng> validPoints = List.from(_drawnPoints);
 
     setState(() => _isSaving = true);
 
     try {
-      print('📡 Saving zone: ${_zoneNameController.text}');
+      print('📡 Saving ${widget.isSubZone ? "sub-zone" : "main zone"}: ${_zoneNameController.text}');
       print('📌 Points: ${validPoints.length}');
-      print('📌 Department assignments: ${_departmentAssignments.length}');
 
-      LatLng center = PolygonHelper.calculateCenter(validPoints);
-      double area = PolygonHelper.calculateArea(validPoints);
+      final center = PolygonHelper.calculateCenter(validPoints);
+      final area = PolygonHelper.calculateArea(validPoints);
 
-      // Prepare department assignments for API - camelCase for Flutter
-      final departmentAssignments = _departmentAssignments.map((dept) {
-        return {
-          'departmentId': dept['id'],
-          'departmentName': dept['name'],
-          'staffCount': 0,
-          'colorCode': '#${dept['color'].value.toRadixString(16).substring(2)}',
+      // Convert polygon to GeoJSON format
+      final geoJson = {
+        'type': 'Polygon',
+        'coordinates': [
+          validPoints.map((p) => [p.longitude, p.latitude]).toList(),
+        ],
+      };
+
+      if (widget.isSubZone && widget.parentZone != null) {
+        // ===== CREATE SUB-ZONE =====
+        final requestBody = {
+          'ZoneName': _zoneNameController.text.trim(),
+          'ZoneNumber': zoneNumber,
+          'ZoneCode': _zoneCodeController.text.isNotEmpty
+              ? _zoneCodeController.text
+              : 'SUB-${zoneNumber.toString().padLeft(3, '0')}',
+          'City': widget.parentZone!.city ?? 'Islamabad',
+          'Province': widget.parentZone!.province ?? 'ICT',
+          'Population': _populationController.text.isNotEmpty
+              ? int.tryParse(_populationController.text)
+              : 0,
+          'TotalAreaSqKm': area,
+          'ColorCode': '#4CAF50',
+          'CenterLatitude': center.latitude,
+          'CenterLongitude': center.longitude,
+          'BoundaryPolygon': geoJson,
+          'DisplayOrder': 0,
         };
-      }).toList();
 
-      print('📡 Department assignments payload: $departmentAssignments');
+        print('📡 Sub-zone request: $requestBody');
 
-      final result = await _zoneService.createZone(
-        zoneName: _zoneNameController.text.trim(),
-        zoneNumber: zoneNumber,
-        boundaryPoints: validPoints,
-        centerPoint: center,
-        area: area,
-        colorCode: '#2196F3',
-        city: 'Islamabad',
-        province: 'ICT',
-        population: 0,
-        departmentAssignments: departmentAssignments, // ← This is critical!
-      );
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Zone created successfully!'),
-            backgroundColor: Colors.green,
-          ),
+        final result = await _zoneService.createSubZone(
+          parentZoneId: widget.parentZone!.zoneId,
+          zoneName: _zoneNameController.text.trim(),
+          zoneNumber: zoneNumber,
+          boundaryPoints: validPoints,
+          zoneCode: _zoneCodeController.text.isNotEmpty ? _zoneCodeController.text : null,
+          city: widget.parentZone!.city,
+          province: widget.parentZone!.province,
+          population: _populationController.text.isNotEmpty ? int.tryParse(_populationController.text) : 0,
+          totalAreaSqKm: area,
+          colorCode: '#4CAF50',
+          centerLatitude: center.latitude,
+          centerLongitude: center.longitude,
         );
-        Navigator.pop(context, true); // Return to previous screen
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Sub-Zone created successfully!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          Navigator.pop(context, true);
+        }
+      } else {
+        // ===== CREATE MAIN ZONE =====
+        final departmentAssignments = _departmentAssignments.map((dept) {
+          return {
+            'departmentId': dept['id'],
+            'departmentName': dept['name'],
+            'staffCount': 0,
+            'colorCode': '#${dept['color'].value.toRadixString(16).substring(2)}',
+          };
+        }).toList();
+
+        final result = await _zoneService.createZone(
+          zoneName: _zoneNameController.text.trim(),
+          zoneNumber: zoneNumber,
+          boundaryPoints: validPoints,
+          centerPoint: center,
+          area: area,
+          colorCode: '#2196F3',
+          city: 'Islamabad',
+          province: 'ICT',
+          population: _populationController.text.isNotEmpty ? int.tryParse(_populationController.text) : 0,
+          departmentAssignments: departmentAssignments,
+        );
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Main Zone created successfully!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          Navigator.pop(context, true);
+        }
       }
     } catch (e) {
       print('❌ Error saving zone: $e');
@@ -698,6 +829,8 @@ class _ZoneDrawingScreenState extends State<ZoneDrawingScreen> {
   void dispose() {
     _zoneNameController.dispose();
     _zoneNumberController.dispose();
+    _zoneCodeController.dispose();
+    _populationController.dispose();
     super.dispose();
   }
 }

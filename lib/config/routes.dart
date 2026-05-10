@@ -10,6 +10,7 @@ import '../screens/admin/admin_complaints_screen.dart';
 import '../screens/admin/compare_duplicates_screen.dart';
 import '../screens/admin/complaint_approval_screen.dart';
 import '../screens/admin/department_management_screen.dart';
+import '../screens/admin/category_management_screen.dart';  // ADD THIS
 import '../screens/admin/detect_duplicates_screen.dart';
 import '../screens/admin/duplicate_notifications_screen.dart';
 import '../screens/admin/zones_map_screen.dart';
@@ -117,7 +118,9 @@ class Routes {
   static const String duplicateNotifications = '/duplicate-notifications';
   static const String adminComplaints = '/admin-complaints';
   static const String complaintApproval = '/complaint-approval';
-  static const String ZonesMap = '/zones-map';
+  static const String zonesMap = '/zones-map';
+  static const String departmentManagement = '/department-management';
+  static const String categoryManagement = '/category-management';  // ADD THIS
 
   // Contractor route names
   static const String contractorLogin = '/contractor-login';
@@ -127,14 +130,11 @@ class Routes {
   static const String contractorPhotos = '/contractor-photos';
   static const String contractorReports = '/contractor-reports';
   static const String contractorProfile = '/contractor-profile';
-
-  // New routes
-  static const String departmentManagement = '/department-management';
-  static const String taskDetail = '/task-detail';
-  static const String resolutionUpload = '/resolution-upload';
   static const String contractorZoneDetail = '/contractor-zone-detail';
 
-  // Add these with your other admin route names (around line 70-80)
+  // New routes
+  static const String taskDetail = '/task-detail';
+  static const String resolutionUpload = '/resolution-upload';
   static const String compareDuplicates = '/compare-duplicates';
 
   static Map<String, WidgetBuilder> get allRoutes {
@@ -175,7 +175,6 @@ class Routes {
       myTasks: (context) => const MyTasksScreen(),
       staffMap: (context) => const StaffMapScreen(),
       staffProfile: (context) => const StaffProfileScreen(),
-      // Add in Staff routes section
       taskDetail: (context) => const TaskDetailScreen(),
       resolutionUpload: (context) => const ResolutionUploadScreen(),
 
@@ -197,9 +196,8 @@ class Routes {
       adminComplaints: (context) => const AdminComplaintsScreen(),
       complaintApproval: (context) => const ComplaintApprovalScreen(),
       departmentManagement: (context) => const DepartmentManagementScreen(),
-      // In your routes.dart file
-      ZonesMap: (context) => const ZonesMapScreen(),
-      // Add this line in the admin routes section of allRoutes
+      categoryManagement: (context) => const CategoryManagementScreen(),  // ADD THIS
+      zonesMap: (context) => const ZonesMapScreen(),
       compareDuplicates: (context) {
         final args = ModalRoute.of(context)!.settings.arguments as Map<String, String>;
         return CompareDuplicatesScreen(

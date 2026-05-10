@@ -1,3 +1,4 @@
+// lib/screens/admin/zone_management_screen.dart
 import 'package:flutter/material.dart';
 import 'zone_drawing_screen.dart';
 import '../../services/zone_service.dart';
@@ -13,9 +14,10 @@ class ZoneManagementScreen extends StatefulWidget {
 class _ZoneManagementScreenState extends State<ZoneManagementScreen> {
   final ZoneService _zoneService = ZoneService();
 
-  List<Zone> _zones = [];
+  List<Zone> _mainZones = [];
   bool _isLoading = true;
   String? _errorMessage;
+  final Set<String> _expandedZones = {};
 
   @override
   void initState() {
@@ -26,9 +28,9 @@ class _ZoneManagementScreenState extends State<ZoneManagementScreen> {
   Future<void> _loadZones() async {
     setState(() => _isLoading = true);
     try {
-      final zones = await _zoneService.getAllZones();
+      final zones = await _zoneService.getZoneHierarchy();
       setState(() {
-        _zones = zones;
+        _mainZones = zones;
         _isLoading = false;
       });
     } catch (e) {
@@ -39,21 +41,183 @@ class _ZoneManagementScreenState extends State<ZoneManagementScreen> {
     }
   }
 
-  String _formatZoneData(Zone zone, String field) {
-    switch (field) {
-      case 'area':
-      // FIXED: Added null check for totalAreaSqKm
-        if (zone.totalAreaSqKm != null) {
-          return '${zone.totalAreaSqKm!.toStringAsFixed(1)} sq km';
-        }
-        return 'N/A';
-      case 'population':
-        return zone.population?.toString() ?? '0';
-      case 'staffCount':
-        return '0'; // You'll need to calculate this from API
-      default:
-        return '';
+  void _toggleExpand(String zoneId) {
+    setState(() {
+      if (_expandedZones.contains(zoneId)) {
+        _expandedZones.remove(zoneId);
+      } else {
+        _expandedZones.add(zoneId);
+      }
+    });
+  }
+
+  // ===== FIXED: Use ZoneDrawingScreen for Adding Sub-Zone =====
+  Future<void> _addSubZone(Zone parentZone) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ZoneDrawingScreen(
+          isSubZone: true,
+          parentZone: parentZone,
+        ),
+      ),
+    );
+    if (result == true) {
+      _loadZones();
     }
+  }
+
+  // ===== FIXED: Draw Main Zone =====
+  void _drawMainZone() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const ZoneDrawingScreen(
+          isSubZone: false,
+          parentZone: null,
+        ),
+      ),
+    ).then((_) => _loadZones());
+  }
+
+  void _editZone(Zone zone) {
+    // TODO: Implement edit zone functionality
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Edit functionality coming soon')),
+    );
+  }
+
+  Future<void> _deleteSubZone(Zone subZone) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Sub-Zone'),
+        content: Text('Are you sure you want to delete "${subZone.zoneName}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      final success = await _zoneService.deleteSubZone(subZone.zoneId);
+      if (success) {
+        _loadZones();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${subZone.zoneName} deleted'), backgroundColor: Colors.green),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to delete sub-zone'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  void _showZoneDetails(Zone zone) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        height: MediaQuery.of(context).size.height * 0.85,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    zone.isMainZone ? Icons.location_city : Icons.location_on,
+                    color: zone.isMainZone ? Colors.blue : Colors.green,
+                    size: 28,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      zone.zoneName,
+                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: zone.isMainZone ? Colors.blue[50] : Colors.green[50],
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      zone.zoneTypeDisplay,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: zone.isMainZone ? Colors.blue : Colors.green,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              _buildDetailItem('Zone ID', zone.zoneId),
+              _buildDetailItem('Zone Number', zone.zoneNumber.toString()),
+              _buildDetailItem('Zone Code', zone.zoneCode ?? 'N/A'),
+              _buildDetailItem('City', zone.city ?? 'N/A'),
+              _buildDetailItem('Province', zone.province ?? 'N/A'),
+              _buildDetailItem(
+                'Area',
+                zone.totalAreaSqKm != null
+                    ? '${zone.totalAreaSqKm!.toStringAsFixed(1)} sq km'
+                    : 'N/A',
+              ),
+              _buildDetailItem('Population', zone.population?.toString() ?? '0'),
+              _buildDetailItem('Active Complaints', zone.activeComplaintsCount?.toString() ?? '0'),
+              _buildDetailItem('Total Complaints', zone.totalComplaintsCount?.toString() ?? '0'),
+              _buildDetailItem('Performance', zone.performanceRating ?? 'N/A'),
+              if (zone.isSubZone && zone.parentZoneId != null)
+                _buildDetailItem('Parent Zone', 'Loading...'),
+              const SizedBox(height: 16),
+              if (zone.isSubZone)
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _deleteSubZone(zone),
+                    icon: const Icon(Icons.delete, size: 18),
+                    label: const Text('Delete Sub-Zone'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                      side: const BorderSide(color: Colors.red),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailItem(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(label, style: const TextStyle(color: Colors.grey)),
+          ),
+          Expanded(
+            child: Text(value, style: const TextStyle(fontWeight: FontWeight.w500)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -110,6 +274,10 @@ class _ZoneManagementScreenState extends State<ZoneManagementScreen> {
       );
     }
 
+    int totalMainZones = _mainZones.length;
+    int totalSubZones = _mainZones.fold(0, (sum, zone) => sum + (zone.subZones?.length ?? 0));
+    int totalActive = _mainZones.where((z) => z.isActive).length;
+
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
@@ -126,18 +294,8 @@ class _ZoneManagementScreenState extends State<ZoneManagementScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.map, color: Colors.blue),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const ZoneDrawingScreen()),
-              ).then((_) => _loadZones());
-            },
-            tooltip: 'Draw New Zone on Map',
-          ),
-          IconButton(
-            icon: const Icon(Icons.add, color: Colors.blue),
-            onPressed: () => _addNewZone(),
-            tooltip: 'Add Zone Manually',
+            onPressed: _drawMainZone,
+            tooltip: 'Draw Main Zone on Map',
           ),
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.grey),
@@ -147,45 +305,35 @@ class _ZoneManagementScreenState extends State<ZoneManagementScreen> {
       ),
       body: Column(
         children: [
-          // Stats Row
           Container(
             padding: const EdgeInsets.all(16),
             color: Colors.white,
             child: Row(
               children: [
                 Expanded(
-                  child: _buildZoneStat('${_zones.length}', 'Total Zones', Colors.blue),
+                  child: _buildZoneStat('$totalMainZones', 'Main Zones', Colors.blue),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: _buildZoneStat(
-                    '${_zones.length}',
-                    'Active',
-                    Colors.green,
-                  ),
+                  child: _buildZoneStat('$totalSubZones', 'Sub-Zones', Colors.green),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: _buildZoneStat(
-                    '0',
-                    'With Contractor',
-                    Colors.orange,
-                  ),
+                  child: _buildZoneStat('$totalActive', 'Active', Colors.green),
                 ),
               ],
             ),
           ),
 
-          // Zones List
           Expanded(
             child: RefreshIndicator(
               onRefresh: _loadZones,
               child: ListView.builder(
                 padding: const EdgeInsets.all(16),
-                itemCount: _zones.length,
+                itemCount: _mainZones.length,
                 itemBuilder: (context, index) {
-                  final zone = _zones[index];
-                  return _buildZoneCard(zone);
+                  final mainZone = _mainZones[index];
+                  return _buildMainZoneCard(mainZone);
                 },
               ),
             ),
@@ -193,186 +341,242 @@ class _ZoneManagementScreenState extends State<ZoneManagementScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const ZoneDrawingScreen()),
-          ).then((_) => _loadZones());
-        },
+        onPressed: _drawMainZone,
         icon: const Icon(Icons.draw),
-        label: const Text('Draw Zone'),
+        label: const Text('Draw Main Zone'),
         backgroundColor: Colors.blue,
       ),
     );
   }
 
   Widget _buildZoneStat(String value, String label, Color color) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: color,
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey[600],
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey[600],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  Widget _buildZoneCard(Zone zone) {
+  Widget _buildMainZoneCard(Zone mainZone) {
+    final isExpanded = _expandedZones.contains(mainZone.zoneId);
+    final hasSubZones = mainZone.hasSubZones;
+    final subZones = mainZone.subZones ?? [];
+
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       elevation: 2,
-      child: InkWell(
-        onTap: () => _showZoneDetails(zone),
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.blue[200]!, width: 1),
+      ),
+      child: Column(
+        children: [
+          InkWell(
+            onTap: () => _showZoneDetails(mainZone),
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(12),
+              topRight: Radius.circular(12),
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.blue[50],
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  topRight: Radius.circular(12),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Row(
+                          children: [
+                            const Icon(Icons.location_city, color: Colors.blue, size: 24),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                mainZone.zoneName,
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.blue,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          if (hasSubZones)
+                            IconButton(
+                              icon: Icon(
+                                isExpanded ? Icons.expand_less : Icons.expand_more,
+                                color: Colors.blue,
+                              ),
+                              onPressed: () => _toggleExpand(mainZone.zoneId),
+                            ),
+                          IconButton(
+                            icon: const Icon(Icons.add, color: Colors.blue, size: 20),
+                            onPressed: () => _addSubZone(mainZone),
+                            tooltip: 'Add Sub-Zone',
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.edit, color: Colors.blue, size: 20),
+                            onPressed: () => _editZone(mainZone),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildInfoChip(Icons.code, mainZone.zoneCode ?? 'No Code'),
+                      _buildInfoChip(Icons.location_on, mainZone.city ?? 'City'),
+                      _buildInfoChip(
+                        Icons.area_chart,
+                        mainZone.totalAreaSqKm != null
+                            ? '${mainZone.totalAreaSqKm!.toStringAsFixed(1)} km²'
+                            : 'N/A',
+                      ),
+                      if (hasSubZones)
+                        _buildInfoChip(
+                          Icons.folder,
+                          '${subZones.length} Sub-Zones',
+                          color: Colors.green,
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          if (isExpanded && hasSubZones)
+            Container(
+              padding: const EdgeInsets.all(8),
+              child: Column(
+                children: subZones.map((subZone) => _buildSubZoneCard(subZone)).toList(),
+              ),
+            ),
+
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey[50],
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(12),
+                bottomRight: Radius.circular(12),
+              ),
+            ),
+            child: Row(
+              children: [
+                _buildStatChip(Icons.assignment, 'Total: ${mainZone.totalComplaintsCount ?? 0}'),
+                const SizedBox(width: 8),
+                _buildStatChip(Icons.pending, 'Active: ${mainZone.activeComplaintsCount ?? 0}'),
+                const SizedBox(width: 8),
+                _buildStatChip(Icons.people, 'Staff: 0'),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSubZoneCard(Zone subZone) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      elevation: 1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: Colors.green[200]!, width: 1),
+      ),
+      child: InkWell(
+        onTap: () => _showZoneDetails(subZone),
+        borderRadius: BorderRadius.circular(10),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Expanded(
-                    child: Text(
-                      zone.zoneName,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.green[50],
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Text(
-                      'Active',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.green,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-
-              // Zone Info - FIXED with null safety
-              Row(
-                children: [
-                  _buildZoneInfoItem(
-                      Icons.map,
-                      zone.totalAreaSqKm != null
-                          ? '${zone.totalAreaSqKm!.toStringAsFixed(1)} sq km'
-                          : 'N/A'
-                  ),
-                  const SizedBox(width: 16),
-                  _buildZoneInfoItem(
-                      Icons.people,
-                      zone.population?.toString() ?? '0'
-                  ),
-                  const SizedBox(width: 16),
-                  _buildZoneInfoItem(Icons.engineering, '0 staff'),
-                ],
-              ),
-              const SizedBox(height: 12),
-
-              // Manager Info
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey[50],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: Colors.blue[100],
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.person,
-                        color: Colors.blue,
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Zone Manager',
-                            style: TextStyle(
-                              fontSize: 14,
+                    child: Row(
+                      children: [
+                        const Icon(Icons.location_on, color: Colors.green, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            subZone.zoneName,
+                            style: const TextStyle(
+                              fontSize: 16,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
-                          Text(
-                            '${zone.city ?? 'City'} • 0 active',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.edit, size: 20, color: Colors.blue),
-                      onPressed: () => _editZone(zone),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 12),
-
-              // Contractor Info Row
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.grey[100],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(
-                      Icons.business_center,
-                      size: 16,
-                      color: Colors.grey,
-                    ),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Contractor: Not Assigned',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey,
                         ),
-                      ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                  Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.edit, size: 18, color: Colors.green),
+                        onPressed: () => _editZone(subZone),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete, size: 18, color: Colors.red),
+                        onPressed: () => _deleteSubZone(subZone),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _buildInfoChip(Icons.code, subZone.zoneCode ?? 'No Code', small: true),
+                  _buildInfoChip(Icons.area_chart,
+                      subZone.totalAreaSqKm != null
+                          ? '${subZone.totalAreaSqKm!.toStringAsFixed(1)} km²'
+                          : 'N/A',
+                      small: true),
+                  _buildInfoChip(Icons.people, 'Pop: ${subZone.population ?? 0}', small: true),
+                  _buildInfoChip(Icons.assignment, 'Complaints: ${subZone.totalComplaintsCount ?? 0}', small: true),
+                ],
               ),
             ],
           ),
@@ -381,101 +585,44 @@ class _ZoneManagementScreenState extends State<ZoneManagementScreen> {
     );
   }
 
-  Widget _buildZoneInfoItem(IconData icon, String text) {
-    return Row(
-      children: [
-        Icon(icon, size: 16, color: Colors.grey),
-        const SizedBox(width: 6),
-        Text(
-          text,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Colors.grey,
-          ),
-        ),
-      ],
-    );
-  }
-
-  void _showZoneDetails(Zone zone) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        height: MediaQuery.of(context).size.height * 0.85,
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                zone.zoneName,
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 24),
-              _buildDetailItem('Zone ID', zone.zoneId),
-              _buildDetailItem('Zone Number', zone.zoneNumber.toString()),
-              _buildDetailItem('City', zone.city ?? 'N/A'),
-              _buildDetailItem('Province', zone.province ?? 'N/A'),
-              // FIXED: Added null safety for area
-              _buildDetailItem(
-                  'Area',
-                  zone.totalAreaSqKm != null
-                      ? '${zone.totalAreaSqKm!.toStringAsFixed(1)} sq km'
-                      : 'N/A'
-              ),
-              _buildDetailItem('Population', zone.population?.toString() ?? '0'),
-            ],
-          ),
-        ),
+  Widget _buildInfoChip(IconData icon, String label, {bool small = false, Color? color}) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: small ? 6 : 8, vertical: small ? 2 : 4),
+      decoration: BoxDecoration(
+        color: (color ?? Colors.grey).withOpacity(0.1),
+        borderRadius: BorderRadius.circular(4),
       ),
-    );
-  }
-
-  Widget _buildDetailItem(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(
-            width: 100,
-            child: Text(label, style: const TextStyle(color: Colors.grey)),
-          ),
-          Expanded(
-            child: Text(value, style: const TextStyle(fontWeight: FontWeight.w500)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _addNewZone() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add New Zone'),
-        content: const Text('Use the "Draw Zone" button to create zones on map'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
+          Icon(icon, size: small ? 10 : 12, color: color ?? Colors.grey[600]),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: small ? 10 : 11,
+              color: color ?? Colors.grey[600],
+            ),
           ),
         ],
       ),
     );
   }
 
-  void _editZone(Zone zone) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Edit Zone'),
-        content: const Text('Edit functionality coming soon'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
+  Widget _buildStatChip(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: Colors.grey[200]!),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: Colors.grey[600]),
+          const SizedBox(width: 4),
+          Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
         ],
       ),
     );

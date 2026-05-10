@@ -480,4 +480,67 @@ class DepartmentService {
       return [];
     }
   }
+  // Add these to department_service.dart if not present:
+
+// =====================================================
+// UPDATE DEPARTMENT STATS (Active/Resolved counts)
+// =====================================================
+  Future<Map<String, dynamic>> updateDepartmentStats(String departmentId, {
+    int? activeComplaintsCount,
+    int? resolvedComplaintsCount,
+    int? totalComplaintsCount,
+    double? averageResolutionTimeDays,
+  }) async {
+    try {
+      final updateData = <String, dynamic>{};
+      if (activeComplaintsCount != null) updateData['activeComplaintsCount'] = activeComplaintsCount;
+      if (resolvedComplaintsCount != null) updateData['resolvedComplaintsCount'] = resolvedComplaintsCount;
+      if (totalComplaintsCount != null) updateData['totalComplaintsCount'] = totalComplaintsCount;
+      if (averageResolutionTimeDays != null) updateData['averageResolutionTimeDays'] = averageResolutionTimeDays;
+
+      final response = await http.put(
+        Uri.parse('${ApiConfig.baseUrl}/departments/$departmentId/update-stats'),
+        headers: ApiConfig.getHeaders(),
+        body: json.encode(updateData),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        throw Exception('Failed to update department stats');
+      }
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+// =====================================================
+// UPDATE DEPARTMENT PERFORMANCE SCORE
+// =====================================================
+  Future<Map<String, dynamic>> updateDepartmentPerformance(
+      String departmentId, {
+        required double performanceScore,
+        required String performanceRating,
+      }) async {
+    try {
+      final updateData = {
+        'performanceScore': performanceScore,
+        'performanceRating': performanceRating,
+      };
+
+      final response = await http.put(
+        Uri.parse('${ApiConfig.baseUrl}/departments/$departmentId/update-performance'),
+        headers: ApiConfig.getHeaders(),
+        body: json.encode(updateData),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        throw Exception('Failed to update department performance');
+      }
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
 }

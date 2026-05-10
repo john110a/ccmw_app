@@ -524,4 +524,195 @@ class ZoneService {
       return {'type': 'FeatureCollection', 'features': []};
     }
   }
+  // lib/services/zone_service.dart - Add these new methods
+
+  /// Get zone hierarchy (Main Zones with Sub-Zones)
+  Future<List<Zone>> getZoneHierarchy() async {
+    try {
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/zones/hierarchy'),
+        headers: ApiConfig.getHeaders(),
+      ).timeout(const Duration(seconds: 15));
+
+      print('📡 Zone hierarchy response: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final zonesData = data['Zones'] as List? ?? [];
+
+        final zones = zonesData.map((json) => Zone.fromJson(json)).toList();
+        print('✅ Loaded ${zones.length} main zones with sub-zones');
+
+        // Count sub-zones
+        int totalSubZones = 0;
+        for (var zone in zones) {
+          if (zone.subZones != null) {
+            totalSubZones += zone.subZones!.length;
+          }
+        }
+        print('📊 Total sub-zones: $totalSubZones');
+
+        return zones;
+      } else {
+        print('❌ Failed to load zone hierarchy: ${response.statusCode}');
+        return [];
+      }
+    } catch (e) {
+      print('❌ Error loading zone hierarchy: $e');
+      return [];
+    }
+  }
+
+  /// Get sub-zones for a specific parent zone
+  Future<List<Zone>> getSubZones(String parentZoneId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/zones/$parentZoneId/subzones'),
+        headers: ApiConfig.getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final subZonesData = data['SubZones'] as List? ?? [];
+        return subZonesData.map((json) => Zone.fromJson(json)).toList();
+      } else {
+        return [];
+      }
+    } catch (e) {
+      print('❌ Error loading sub-zones: $e');
+      return [];
+    }
+  }
+
+  /// Create a sub-zone under a parent zone
+  Future<Map<String, dynamic>> createSubZone({
+    required String parentZoneId,
+    required String zoneName,
+    required int zoneNumber,
+    required List<LatLng> boundaryPoints,
+    String? zoneCode,
+    String? city,
+    String? province,
+    int? population,
+    double? totalAreaSqKm,
+    String? colorCode,
+    double? centerLatitude,
+    double? centerLongitude,
+    int? displayOrder,
+    List<Map<String, dynamic>>? departmentAssignments,
+  }) async {
+    try {
+      final geoJson = {
+        'type': 'Polygon',
+        'coordinates': [
+          boundaryPoints.map((p) => [p.longitude, p.latitude]).toList(),
+        ],
+      };
+
+      final requestBody = {
+        'ZoneName': zoneName,
+        'ZoneNumber': zoneNumber,
+        'ZoneCode': zoneCode ?? 'SUB-${zoneNumber.toString().padLeft(3, '0')}',
+        'City': city,
+        'Province': province,
+        'Population': population ?? 0,
+        'TotalAreaSqKm': totalAreaSqKm,
+        'ColorCode': colorCode ?? '#4CAF50',
+        'CenterLatitude': centerLatitude,
+        'CenterLongitude': centerLongitude,
+        'BoundaryPolygon': geoJson,
+        'DisplayOrder': displayOrder ?? 0,
+        'DepartmentAssignments': departmentAssignments ?? [],
+      };
+
+      final response = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/zones/$parentZoneId/subzones'),
+        headers: ApiConfig.getHeaders(),
+        body: json.encode(requestBody),
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return json.decode(response.body);
+      } else {
+        throw Exception('Failed to create sub-zone: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ Error creating sub-zone: $e');
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Update a sub-zone
+  Future<Map<String, dynamic>> updateSubZone(
+      String subZoneId, {
+        String? zoneName,
+        String? zoneCode,
+        int? population,
+        double? totalAreaSqKm,
+        String? colorCode,
+        dynamic boundaryPolygon,
+        double? centerLatitude,
+        double? centerLongitude,
+        int? displayOrder,
+      }) async {
+    try {
+      final requestBody = {
+        if (zoneName != null) 'ZoneName': zoneName,
+        if (zoneCode != null) 'ZoneCode': zoneCode,
+        if (population != null) 'Population': population,
+        if (totalAreaSqKm != null) 'TotalAreaSqKm': totalAreaSqKm,
+        if (colorCode != null) 'ColorCode': colorCode,
+        if (boundaryPolygon != null) 'BoundaryPolygon': boundaryPolygon,
+        if (centerLatitude != null) 'CenterLatitude': centerLatitude,
+        if (centerLongitude != null) 'CenterLongitude': centerLongitude,
+        if (displayOrder != null) 'DisplayOrder': displayOrder,
+      };
+
+      final response = await http.put(
+        Uri.parse('${ApiConfig.baseUrl}/zones/subzones/$subZoneId'),
+        headers: ApiConfig.getHeaders(),
+        body: json.encode(requestBody),
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        throw Exception('Failed to update sub-zone: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ Error updating sub-zone: $e');
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Delete a sub-zone
+  Future<bool> deleteSubZone(String subZoneId) async {
+    try {
+      final response = await http.delete(
+        Uri.parse('${ApiConfig.baseUrl}/zones/subzones/$subZoneId'),
+        headers: ApiConfig.getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      return response.statusCode == 200;
+    } catch (e) {
+      print('❌ Error deleting sub-zone: $e');
+      return false;
+    }
+  }
+
+  /// Reassign sub-zone to a different parent zone
+  Future<bool> reassignSubZone(String subZoneId, String newParentZoneId) async {
+    try {
+      final response = await http.put(
+        Uri.parse('${ApiConfig.baseUrl}/zones/subzones/$subZoneId/reassign'),
+        headers: ApiConfig.getHeaders(),
+        body: json.encode({'NewParentZoneId': newParentZoneId}),
+      ).timeout(const Duration(seconds: 10));
+
+      return response.statusCode == 200;
+    } catch (e) {
+      print('❌ Error reassigning sub-zone: $e');
+      return false;
+    }
+  }
 }

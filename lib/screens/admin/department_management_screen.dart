@@ -34,6 +34,13 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
     setState(() => _isLoading = true);
     try {
       final departments = await _departmentService.getAllDepartments();
+      print('📊 Loaded ${departments.length} departments');
+
+      // Debug print each department's performance
+      for (var dept in departments) {
+        print('📊 ${dept.departmentName}: Score=${dept.performanceScore}%, Active=${dept.activeComplaintsCount}, Total=${dept.totalComplaintsCount}');
+      }
+
       setState(() {
         _departments = departments;
         _isLoading = false;
@@ -43,6 +50,7 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
         _errorMessage = e.toString();
         _isLoading = false;
       });
+      print('❌ Error loading departments: $e');
     }
   }
 
@@ -51,7 +59,7 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
     try {
       final response = await _departmentService.getDepartmentStaff(departmentId);
       setState(() {
-        _selectedDepartmentStaff = List<Map<String, dynamic>>.from(response['Staff']);
+        _selectedDepartmentStaff = List<Map<String, dynamic>>.from(response['Staff'] ?? []);
         _selectedDepartmentId = departmentId;
         _isLoadingStaff = false;
       });
@@ -139,6 +147,19 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
                     },
                   ),
                 ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                    label: const Text('Close'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.grey[200],
+                      foregroundColor: Colors.grey[800],
+                    ),
+                  ),
+                ),
               ],
             ),
           );
@@ -152,7 +173,7 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
     final nameController = TextEditingController();
     final codeController = TextEditingController();
     final descriptionController = TextEditingController();
-    String? privatizationStatus = 'In-house';
+    String? privatizationStatus = 'Public';
 
     showDialog(
       context: context,
@@ -202,8 +223,9 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
                   ),
                   value: privatizationStatus,
                   items: const [
-                    DropdownMenuItem(value: 'In-house', child: Text('In-house')),
-                    DropdownMenuItem(value: 'Outsourced', child: Text('Outsourced')),
+                    DropdownMenuItem(value: 'Public', child: Text('Public')),
+                    DropdownMenuItem(value: 'Private', child: Text('Private')),
+                    DropdownMenuItem(value: 'PPP', child: Text('PPP')),
                   ],
                   onChanged: (value) => privatizationStatus = value,
                 ),
@@ -222,10 +244,10 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
                 Navigator.pop(context);
                 try {
                   await _departmentService.createDepartment({
-                    'departmentName': nameController.text,
-                    'departmentCode': codeController.text,
-                    'description': descriptionController.text,
-                    'privatizationStatus': privatizationStatus,
+                    'DepartmentName': nameController.text,
+                    'DepartmentCode': codeController.text,
+                    'Description': descriptionController.text,
+                    'PrivatizationStatus': privatizationStatus,
                   });
                   await _loadData();
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -249,9 +271,9 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
   void _showEditDepartmentDialog(Department department) {
     final formKey = GlobalKey<FormState>();
     final nameController = TextEditingController(text: department.departmentName);
-    final codeController = TextEditingController(text: department.departmentCode);
-    final descriptionController = TextEditingController(text: department.description);
-    String? privatizationStatus = department.privatizationStatus ?? 'In-house';
+    final codeController = TextEditingController(text: department.departmentCode ?? '');
+    final descriptionController = TextEditingController(text: department.description ?? '');
+    String? privatizationStatus = department.privatizationStatus ?? 'Public';
 
     showDialog(
       context: context,
@@ -300,8 +322,9 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
                   ),
                   value: privatizationStatus,
                   items: const [
-                    DropdownMenuItem(value: 'In-house', child: Text('In-house')),
-                    DropdownMenuItem(value: 'Outsourced', child: Text('Outsourced')),
+                    DropdownMenuItem(value: 'Public', child: Text('Public')),
+                    DropdownMenuItem(value: 'Private', child: Text('Private')),
+                    DropdownMenuItem(value: 'PPP', child: Text('PPP')),
                   ],
                   onChanged: (value) => privatizationStatus = value,
                 ),
@@ -320,10 +343,10 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
                 Navigator.pop(context);
                 try {
                   await _departmentService.updateDepartment(department.departmentId, {
-                    'departmentName': nameController.text,
-                    'departmentCode': codeController.text,
-                    'description': descriptionController.text,
-                    'privatizationStatus': privatizationStatus,
+                    'DepartmentName': nameController.text,
+                    'DepartmentCode': codeController.text,
+                    'Description': descriptionController.text,
+                    'PrivatizationStatus': privatizationStatus,
                   });
                   await _loadData();
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -337,7 +360,7 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
               }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-            child: const Text('Save'),
+            child: const Text('Save Changes'),
           ),
         ],
       ),
@@ -349,7 +372,7 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Deactivate Department'),
-        content: Text('Are you sure you want to deactivate "${department.departmentName}"?'),
+        content: Text('Are you sure you want to deactivate "${department.departmentName}"?\n\nThis will prevent new complaints from being assigned to this department.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -372,6 +395,40 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             child: const Text('Deactivate'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showActivateConfirmDialog(Department department) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Activate Department'),
+        content: Text('Are you sure you want to activate "${department.departmentName}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              try {
+                await _departmentService.activateDepartment(department.departmentId);
+                await _loadData();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('${department.departmentName} activated'), backgroundColor: Colors.green),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            child: const Text('Activate'),
           ),
         ],
       ),
@@ -423,6 +480,12 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
       );
     }
 
+    // Calculate stats
+    final totalDepartments = _departments.length;
+    final activeDepartments = _departments.where((d) => d.isActive).length;
+    final inactiveDepartments = totalDepartments - activeDepartments;
+    final avgPerformance = _departments.where((d) => d.performanceScore != null).fold<double>(0, (sum, d) => sum + (d.performanceScore ?? 0)) / (_departments.where((d) => d.performanceScore != null).length);
+
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
@@ -454,23 +517,19 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
             child: Row(
               children: [
                 Expanded(
-                  child: _buildStatCard('${_departments.length}', 'Total', Colors.blue),
+                  child: _buildStatCard('$totalDepartments', 'Total', Colors.blue),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: _buildStatCard(
-                    '${_departments.where((d) => d.privatizationStatus == 'In-house').length}',
-                    'In-house',
-                    Colors.green,
-                  ),
+                  child: _buildStatCard('$activeDepartments', 'Active', Colors.green),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: _buildStatCard(
-                    '${_departments.where((d) => d.privatizationStatus == 'Outsourced').length}',
-                    'Outsourced',
-                    Colors.orange,
-                  ),
+                  child: _buildStatCard('$inactiveDepartments', 'Inactive', Colors.red),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildStatCard('${avgPerformance.toStringAsFixed(1)}%', 'Avg Score', Colors.purple),
                 ),
               ],
             ),
@@ -496,15 +555,22 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
   }
 
   Widget _buildStatCard(String value, String label, Color color) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color),
-        ),
-        const SizedBox(height: 4),
-        Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-      ],
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color),
+          ),
+          const SizedBox(height: 4),
+          Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+        ],
+      ),
     );
   }
 
@@ -512,6 +578,7 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
     final isActive = department.isActive;
     final statusColor = isActive ? Colors.green : Colors.red;
     final statusText = isActive ? 'Active' : 'Inactive';
+    final performance = department.performanceScore ?? 0;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
@@ -534,9 +601,32 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
                         style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        department.departmentCode ?? 'No Code',
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[200],
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              department.departmentCode ?? 'No Code',
+                              style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.blue[50],
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              department.privatizationStatus ?? 'Public',
+                              style: TextStyle(fontSize: 11, color: Colors.blue[700]),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -555,6 +645,8 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
               ],
             ),
             const SizedBox(height: 12),
+
+            // Description
             if (department.description != null && department.description!.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
@@ -563,47 +655,54 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
                   style: TextStyle(fontSize: 14, color: Colors.grey[700]),
                 ),
               ),
-            // Stats Row
-            Row(
+
+            // Stats Chips
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
               children: [
-                _buildInfoChip(Icons.people, '${department.activeComplaintsCount} Active'),
-                const SizedBox(width: 12),
-                _buildInfoChip(Icons.check_circle, '${department.resolvedComplaintsCount} Resolved'),
-                const SizedBox(width: 12),
-                _buildInfoChip(Icons.business_center, department.privatizationStatus ?? 'In-house'),
+                _buildInfoChip(Icons.assignment, 'Total: ${department.totalComplaintsCount}', Colors.blue),
+                _buildInfoChip(Icons.pending, 'Active: ${department.activeComplaintsCount}', Colors.orange),
+                _buildInfoChip(Icons.check_circle, 'Resolved: ${department.resolvedComplaintsCount}', Colors.green),
+                _buildInfoChip(Icons.access_time, 'Avg Resolution: ${department.averageResolutionTimeDays?.toStringAsFixed(1) ?? 0}d', Colors.purple),
               ],
             ),
+
             const SizedBox(height: 12),
-            // Performance Bar
-            if (department.performanceScore != null)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Performance', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                      Text(
-                        '${department.performanceScore!.toStringAsFixed(1)}%',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.blue),
+
+            // Performance Score Bar
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Performance Score', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                    Text(
+                      '${performance.toStringAsFixed(1)}%',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: performance >= 80 ? Colors.green : (performance >= 60 ? Colors.orange : Colors.red),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  LinearProgressIndicator(
-                    value: department.performanceScore! / 100,
-                    backgroundColor: Colors.grey[200],
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      department.performanceScore! >= 80
-                          ? Colors.green
-                          : department.performanceScore! >= 60
-                          ? Colors.orange
-                          : Colors.red,
                     ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                LinearProgressIndicator(
+                  value: performance / 100,
+                  backgroundColor: Colors.grey[200],
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    performance >= 80 ? Colors.green : (performance >= 60 ? Colors.orange : Colors.red),
                   ),
-                ],
-              ),
+                  minHeight: 8,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ],
+            ),
+
             const SizedBox(height: 16),
+
             // Action Buttons
             Row(
               children: [
@@ -611,7 +710,7 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
                   child: OutlinedButton.icon(
                     onPressed: () => _loadDepartmentStaff(department.departmentId),
                     icon: const Icon(Icons.people, size: 18),
-                    label: const Text('View Staff'),
+                    label: const Text('Staff'),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 10),
                     ),
@@ -641,6 +740,19 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
                         padding: const EdgeInsets.symmetric(vertical: 10),
                       ),
                     ),
+                  )
+                else
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _showActivateConfirmDialog(department),
+                      icon: const Icon(Icons.play_arrow, size: 18),
+                      label: const Text('Activate'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.green,
+                        side: const BorderSide(color: Colors.green),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                    ),
                   ),
               ],
             ),
@@ -650,25 +762,28 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
     );
   }
 
-  Widget _buildInfoChip(IconData icon, String label) {
+  Widget _buildInfoChip(IconData icon, String label, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.grey[100],
+        color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 12, color: Colors.grey[600]),
+          Icon(icon, size: 12, color: color),
           const SizedBox(width: 4),
-          Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+          Text(label, style: TextStyle(fontSize: 11, color: color)),
         ],
       ),
     );
   }
 
   Widget _buildStaffCard(Map<String, dynamic> staff) {
+    final isAvailable = staff['isAvailable'] ?? false;
+    final pendingAssignments = staff['pendingAssignments'] ?? 0;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       elevation: 0,
@@ -678,10 +793,13 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
       ),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: Colors.blue[100],
+          backgroundColor: isAvailable ? Colors.green[100] : Colors.red[100],
           child: Text(
-            (staff['fullName']?.substring(0, 1) ?? 'S').toUpperCase(),
-            style: TextStyle(color: Colors.blue[700], fontWeight: FontWeight.bold),
+            (staff['fullName'] ?? 'S').substring(0, 1).toUpperCase(),
+            style: TextStyle(
+              color: isAvailable ? Colors.green[700] : Colors.red[700],
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ),
         title: Text(
@@ -702,18 +820,18 @@ class _DepartmentManagementScreenState extends State<DepartmentManagementScreen>
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                color: staff['isAvailable'] ? Colors.green[50] : Colors.red[50],
+                color: isAvailable ? Colors.green[50] : Colors.red[50],
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
-                staff['isAvailable'] ? 'Available' : 'Busy',
-                style: TextStyle(fontSize: 10, color: staff['isAvailable'] ? Colors.green : Colors.red),
+                isAvailable ? 'Available' : 'Busy',
+                style: TextStyle(fontSize: 10, color: isAvailable ? Colors.green : Colors.red),
               ),
             ),
             const SizedBox(height: 4),
             Text(
-              '${staff['pendingAssignments']} pending',
-              style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+              '$pendingAssignments pending',
+              style: TextStyle(fontSize: 10, color: pendingAssignments > 3 ? Colors.red : Colors.grey[500]),
             ),
           ],
         ),

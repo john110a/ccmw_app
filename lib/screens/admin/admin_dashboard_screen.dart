@@ -1,5 +1,6 @@
 // lib/admin/screens/admin_dashboard_screen.dart
 import 'package:flutter/material.dart';
+import '../../config/routes.dart';
 import 'admin_drawer.dart';
 import '../../services/AuthService.dart';
 import '../../services/dashboard_service.dart';
@@ -482,7 +483,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         _buildCompactActionCard(Icons.timeline, 'Escalate', '/escalation-workflow', Colors.red),
 
                         // Department & Staff
-                        _buildCompactActionCard(Icons.business, 'Dept\nDashboard', '/department-dashboard', Colors.indigo),
+                        _buildCompactActionCard(Icons.business, 'Dept\nDashboard', '/department-management', Colors.indigo),
                         _buildCompactActionCard(Icons.people, 'Staff\nManagement', '/staff-management', Colors.blueGrey),
 
                         // Contractor Management
@@ -490,9 +491,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
                         // User Management
                         _buildCompactActionCard(Icons.people_outline, 'Users', '/user-management', Colors.lightBlue),
-
+// In admin_dashboard_screen.dart Quick Actions:
+                        _buildCompactActionCard(
+                          Icons.category,
+                          'Categories',
+                          Routes.categoryManagement,
+                          Colors.purple,
+                        ),
                         // Reports & Settings
-                        _buildCompactActionCard(Icons.report, 'Reports', '/reports', Colors.blue),
+                        //_buildCompactActionCard(Icons.report, 'Reports', '/reports', Colors.blue),
                         _buildCompactActionCard(Icons.settings, 'Settings', '/system-settings', Colors.grey),
                       ],
                     ),
@@ -693,9 +700,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             _buildNavItem(Icons.business_center, 'Contract', Colors.orange, () {
               Navigator.pushNamed(context, '/privatization-management');
             }),
-            _buildNavItem(Icons.report, 'Reports', Colors.grey, () {
-              Navigator.pushNamed(context, '/reports');
-            }),
+            //_buildNavItem(Icons.report, 'Reports', Colors.grey, () {
+             // Navigator.pushNamed(context, '/reports');
+           // }),
             _buildNavItem(Icons.verified, 'Verify', Colors.green, () {
               Navigator.pushNamed(context, '/resolution-detection');
             }),

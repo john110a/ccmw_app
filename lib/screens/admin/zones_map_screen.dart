@@ -16,7 +16,8 @@ class _ZonesMapScreenState extends State<ZonesMapScreen> {
   final ZoneService _zoneService = ZoneService();
 
   GoogleMapController? _mapController;
-  List<Zone> _zones = [];
+  List<Zone> _mainZones = [];  // Main zones (Level 1)
+  List<Zone> _subZones = [];   // Sub-zones (Level 2)
   bool _isLoading = true;
   String? _errorMessage;
 
@@ -28,6 +29,7 @@ class _ZonesMapScreenState extends State<ZonesMapScreen> {
   // UI State
   Zone? _selectedZone;
   bool _showLegend = true;
+  bool _showSubZones = true;  // Toggle sub-zones visibility
   double _zoomLevel = 12;
   LatLng _initialCameraPosition = const LatLng(33.6844, 73.0479);
 
@@ -58,21 +60,31 @@ class _ZonesMapScreenState extends State<ZonesMapScreen> {
     });
 
     try {
-      print('📡 Loading zones...');
-      final zones = await _zoneService.getAllZones();
-      print('✅ Loaded ${zones.length} zones');
+      print('📡 Loading zones hierarchy...');
+      final zones = await _zoneService.getZoneHierarchy();
+      print('✅ Loaded ${zones.length} main zones');
 
-      // Debug print for each zone's polygon status
-      for (var zone in zones) {
-        print('🔍 Zone: ${zone.zoneName} - hasPolygon: ${zone.hasPolygon}');
-        if (zone.boundaryPolygon != null) {
-          print('   boundaryPolygon type: ${zone.boundaryPolygon.runtimeType}');
-          print('   boundaryPolygon preview: ${zone.boundaryPolygon.toString().substring(0, min(100, zone.boundaryPolygon.toString().length))}');
+      // Separate main zones and collect sub-zones
+      List<Zone> allSubZones = [];
+      for (var mainZone in zones) {
+        if (mainZone.subZones != null) {
+          allSubZones.addAll(mainZone.subZones!);
         }
       }
 
+      print('📊 Total sub-zones: ${allSubZones.length}');
+
+      // Debug print for each zone's polygon status
+      for (var zone in zones) {
+        print('🔍 Main Zone: ${zone.zoneName} - hasPolygon: ${zone.hasPolygon}');
+      }
+      for (var zone in allSubZones) {
+        print('🔍 Sub-Zone: ${zone.zoneName} - hasPolygon: ${zone.hasPolygon}');
+      }
+
       setState(() {
-        _zones = zones;
+        _mainZones = zones;
+        _subZones = allSubZones;
         _isLoading = false;
       });
 
@@ -93,22 +105,20 @@ class _ZonesMapScreenState extends State<ZonesMapScreen> {
     int zonesWithPolygons = 0;
     int zonesWithoutPolygons = 0;
 
-    for (int i = 0; i < _zones.length; i++) {
-      final zone = _zones[i];
+    // Add MAIN ZONES first (blue theme)
+    for (int i = 0; i < _mainZones.length; i++) {
+      final zone = _mainZones[i];
       final color = _zoneColors[i % _zoneColors.length];
 
-      // Get color from zone if available
+      // Use zone's color if available, otherwise use blue theme
       final fillColor = zone.colorCode != null
-          ? _getColorFromHex(zone.colorCode!).withOpacity(0.3)
-          : color.withOpacity(0.3);
+          ? _getColorFromHex(zone.colorCode!).withOpacity(0.25)
+          : Colors.blue.withOpacity(0.25);
       final strokeColor = zone.colorCode != null
           ? _getColorFromHex(zone.colorCode!)
-          : color;
+          : Colors.blue;
 
-      // CRITICAL FIX: Directly check boundaryPolygon property
-      final hasValidPolygon = zone.boundaryPolygon != null &&
-          zone.boundaryPolygon.toString().isNotEmpty &&
-          zone.boundaryPolygon.toString() != 'null';
+      final hasValidPolygon = zone.hasPolygon;
 
       if (hasValidPolygon) {
         try {
@@ -116,45 +126,100 @@ class _ZonesMapScreenState extends State<ZonesMapScreen> {
           if (polygonPoints.isNotEmpty && polygonPoints.length >= 3) {
             _polygons.add(
               Polygon(
-                polygonId: PolygonId(zone.zoneId),
+                polygonId: PolygonId('main_${zone.zoneId}'),
                 points: polygonPoints,
                 fillColor: fillColor,
                 strokeColor: strokeColor,
-                strokeWidth: 2,
+                strokeWidth: 3,
                 geodesic: true,
                 consumeTapEvents: true,
                 onTap: () => _onZoneTap(zone),
               ),
             );
             zonesWithPolygons++;
-            print('✅ Added polygon for ${zone.zoneName} with ${polygonPoints.length} points');
-          } else {
-            print('⚠️ Zone ${zone.zoneName} has polygon data but no valid points');
+            print('✅ Added MAIN zone polygon for ${zone.zoneName} with ${polygonPoints.length} points');
           }
         } catch (e) {
-          print('❌ Error adding polygon for zone ${zone.zoneName}: $e');
+          print('❌ Error adding polygon for main zone ${zone.zoneName}: $e');
         }
       } else {
         zonesWithoutPolygons++;
-        print('ℹ️ Zone ${zone.zoneName} has no polygon data');
+        print('ℹ️ Main zone ${zone.zoneName} has no polygon data');
       }
 
       // Add marker at zone center
       final center = zone.center ?? _calculateApproximateCenter(zone);
       _markers.add(
         Marker(
-          markerId: MarkerId(zone.zoneId),
+          markerId: MarkerId('main_marker_${zone.zoneId}'),
           position: center,
           infoWindow: InfoWindow(
-            title: zone.zoneName,
-            snippet: 'Zone ${zone.zoneNumber}\n${hasValidPolygon ? 'Has Polygon' : 'No Polygon'}',
+            title: '🏙️ ${zone.zoneName}',
+            snippet: 'Main Zone ${zone.zoneNumber}\n${zone.hasPolygon ? 'Has Polygon' : 'No Polygon'}\nSub-Zones: ${zone.subZones?.length ?? 0}',
           ),
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            _getMarkerHue(color),
-          ),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
           onTap: () => _onZoneTap(zone),
         ),
       );
+    }
+
+    // Add SUB-ZONES (green theme)
+    if (_showSubZones) {
+      for (int i = 0; i < _subZones.length; i++) {
+        final zone = _subZones[i];
+
+        // Sub-zones use green theme
+        final fillColor = zone.colorCode != null
+            ? _getColorFromHex(zone.colorCode!).withOpacity(0.4)
+            : Colors.green.withOpacity(0.4);
+        final strokeColor = zone.colorCode != null
+            ? _getColorFromHex(zone.colorCode!)
+            : Colors.green;
+
+        final hasValidPolygon = zone.hasPolygon;
+
+        if (hasValidPolygon) {
+          try {
+            final polygonPoints = zone.getPolygonPoints();
+            if (polygonPoints.isNotEmpty && polygonPoints.length >= 3) {
+              _polygons.add(
+                Polygon(
+                  polygonId: PolygonId('sub_${zone.zoneId}'),
+                  points: polygonPoints,
+                  fillColor: fillColor,
+                  strokeColor: strokeColor,
+                  strokeWidth: 2,
+                  geodesic: true,
+                  consumeTapEvents: true,
+                  onTap: () => _onZoneTap(zone),
+                ),
+              );
+              zonesWithPolygons++;
+              print('✅ Added SUB-ZONE polygon for ${zone.zoneName} with ${polygonPoints.length} points');
+            }
+          } catch (e) {
+            print('❌ Error adding polygon for sub-zone ${zone.zoneName}: $e');
+          }
+        } else {
+          zonesWithoutPolygons++;
+          print('ℹ️ Sub-zone ${zone.zoneName} has no polygon data');
+        }
+
+        // Add marker at zone center (green marker for sub-zones)
+        final center = zone.center ?? _calculateApproximateCenter(zone);
+        _markers.add(
+          Marker(
+            markerId: MarkerId('sub_marker_${zone.zoneId}'),
+            position: center,
+            infoWindow: InfoWindow(
+              title: '📍 ${zone.zoneName}',
+              snippet: 'Sub-Zone ${zone.zoneNumber}\n${zone.hasPolygon ? 'Has Polygon' : 'No Polygon'}',
+            ),
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+            onTap: () => _onZoneTap(zone),
+          ),
+        );
+      }
     }
 
     print('📊 Map stats: $zonesWithPolygons zones with polygons, $zonesWithoutPolygons without polygons');
@@ -223,11 +288,12 @@ class _ZonesMapScreenState extends State<ZonesMapScreen> {
   }
 
   void _fitAllZones() {
-    if (_zones.isEmpty) return;
+    if (_mainZones.isEmpty && _subZones.isEmpty) return;
 
     double? minLat, maxLat, minLng, maxLng;
 
-    for (var zone in _zones) {
+    // Include main zones
+    for (var zone in _mainZones) {
       if (zone.hasPolygon) {
         final points = zone.getPolygonPoints();
         for (var point in points) {
@@ -245,6 +311,27 @@ class _ZonesMapScreenState extends State<ZonesMapScreen> {
       }
     }
 
+    // Include sub-zones if visible
+    if (_showSubZones) {
+      for (var zone in _subZones) {
+        if (zone.hasPolygon) {
+          final points = zone.getPolygonPoints();
+          for (var point in points) {
+            minLat = minLat == null ? point.latitude : min(minLat!, point.latitude);
+            maxLat = maxLat == null ? point.latitude : max(maxLat!, point.latitude);
+            minLng = minLng == null ? point.longitude : min(minLng!, point.longitude);
+            maxLng = maxLng == null ? point.longitude : max(maxLng!, point.longitude);
+          }
+        } else {
+          final center = zone.center ?? _calculateApproximateCenter(zone);
+          minLat = minLat == null ? center.latitude : min(minLat!, center.latitude);
+          maxLat = maxLat == null ? center.latitude : max(maxLat!, center.latitude);
+          minLng = minLng == null ? center.longitude : min(minLng!, center.longitude);
+          maxLng = maxLng == null ? center.longitude : max(maxLng!, center.longitude);
+        }
+      }
+    }
+
     if (minLat != null && maxLat != null && minLng != null && maxLng != null) {
       final bounds = LatLngBounds(
         southwest: LatLng(minLat, minLng),
@@ -257,6 +344,7 @@ class _ZonesMapScreenState extends State<ZonesMapScreen> {
   void _zoomIn() => _mapController?.animateCamera(CameraUpdate.zoomIn());
   void _zoomOut() => _mapController?.animateCamera(CameraUpdate.zoomOut());
   void _toggleLegend() => setState(() => _showLegend = !_showLegend);
+  void _toggleSubZones() => setState(() => _showSubZones = !_showSubZones);
 
   @override
   Widget build(BuildContext context) {
@@ -271,6 +359,13 @@ class _ZonesMapScreenState extends State<ZonesMapScreen> {
             onPressed: () => Navigator.pop(context),
           ),
           title: Text('Zones Map', style: TextStyle(color: Colors.grey[900])),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.layers, color: Colors.blue),
+              onPressed: _toggleSubZones,
+              tooltip: _showSubZones ? 'Hide Sub-Zones' : 'Show Sub-Zones',
+            ),
+          ],
         ),
         body: const Center(child: CircularProgressIndicator()),
       );
@@ -315,6 +410,9 @@ class _ZonesMapScreenState extends State<ZonesMapScreen> {
       );
     }
 
+    final totalMainZones = _mainZones.length;
+    final totalSubZones = _subZones.length;
+
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
@@ -326,6 +424,12 @@ class _ZonesMapScreenState extends State<ZonesMapScreen> {
         ),
         title: Text('Zones Map', style: TextStyle(color: Colors.grey[900])),
         actions: [
+          IconButton(
+            icon: Icon(_showSubZones ? Icons.visibility_off : Icons.visibility),
+            color: Colors.green,
+            onPressed: _toggleSubZones,
+            tooltip: _showSubZones ? 'Hide Sub-Zones' : 'Show Sub-Zones',
+          ),
           IconButton(
             icon: const Icon(Icons.layers, color: Colors.blue),
             onPressed: _toggleLegend,
@@ -388,10 +492,55 @@ class _ZonesMapScreenState extends State<ZonesMapScreen> {
             ),
           ),
 
+          // Stats Badge
+          Positioned(
+            top: 16,
+            left: 16,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: Colors.blue,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text('$totalMainZones Main', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                  const SizedBox(width: 12),
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: Colors.green,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text('$totalSubZones Sub', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                ],
+              ),
+            ),
+          ),
+
           // Legend
           if (_showLegend)
             Positioned(
-              top: 16,
+              top: 70,
               right: 16,
               child: Container(
                 width: 200,
@@ -419,43 +568,95 @@ class _ZonesMapScreenState extends State<ZonesMapScreen> {
                       ],
                     ),
                     const Divider(),
-                    ..._zones.take(8).map((zone) {
-                      final index = _zones.indexOf(zone);
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 16,
+                            height: 16,
+                            decoration: const BoxDecoration(
+                              color: Colors.blue,
+                              borderRadius: BorderRadius.horizontal(),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Text('Main Zones', style: TextStyle(fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 16,
+                            height: 16,
+                            decoration: const BoxDecoration(
+                              color: Colors.green,
+                              borderRadius: BorderRadius.horizontal(),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Text('Sub-Zones', style: TextStyle(fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                    const Divider(),
+                    ..._mainZones.take(5).map((zone) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 12,
+                            height: 12,
+                            decoration: BoxDecoration(
+                              color: Colors.blue.withOpacity(0.5),
+                              border: Border.all(color: Colors.blue, width: 1),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              zone.zoneName,
+                              style: const TextStyle(fontSize: 11),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )),
+                    if (_subZones.isNotEmpty) ...[
+                      const Divider(),
+                      ..._subZones.take(3).map((zone) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
                         child: Row(
                           children: [
                             Container(
-                              width: 16,
-                              height: 16,
+                              width: 12,
+                              height: 12,
                               decoration: BoxDecoration(
-                                color: _zoneColors[index % _zoneColors.length].withOpacity(0.5),
-                                border: Border.all(
-                                  color: zone.colorCode != null
-                                      ? _getColorFromHex(zone.colorCode!)
-                                      : _zoneColors[index % _zoneColors.length],
-                                  width: 2,
-                                ),
-                                borderRadius: BorderRadius.circular(2),
+                                color: Colors.green.withOpacity(0.5),
+                                border: Border.all(color: Colors.green, width: 1),
                               ),
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 6),
                             Expanded(
                               child: Text(
-                                zone.zoneName,
-                                style: const TextStyle(fontSize: 12),
+                                '  └ ${zone.zoneName}',
+                                style: const TextStyle(fontSize: 11),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ],
                         ),
-                      );
-                    }),
-                    if (_zones.length > 8)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 8),
-                        child: Text('... and more', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                      ),
+                      )),
+                      if (_subZones.length > 3)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 4),
+                          child: Text('... and more', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                        ),
+                    ],
                   ],
                 ),
               ),
@@ -488,15 +689,12 @@ class _ZonesMapScreenState extends State<ZonesMapScreen> {
                     children: [
                       Row(
                         children: [
-                          Container(
-                            width: 4,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: _zoneColors[_zones.indexOf(_selectedZone!) % _zoneColors.length],
-                              borderRadius: BorderRadius.circular(2),
-                            ),
+                          Icon(
+                            _selectedZone!.isMainZone ? Icons.location_city : Icons.location_on,
+                            color: _selectedZone!.isMainZone ? Colors.blue : Colors.green,
+                            size: 24,
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 8),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -505,16 +703,16 @@ class _ZonesMapScreenState extends State<ZonesMapScreen> {
                                   _selectedZone!.zoneName,
                                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                                 ),
-                                const SizedBox(height: 4),
+                                const SizedBox(height: 2),
                                 Text(
-                                  'Zone ${_selectedZone!.zoneNumber}',
-                                  style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                                  '${_selectedZone!.zoneTypeDisplay} ${_selectedZone!.zoneNumber}',
+                                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                                 ),
                               ],
                             ),
                           ),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                             decoration: BoxDecoration(
                               color: _selectedZone!.hasPolygon ? Colors.green[50] : Colors.orange[50],
                               borderRadius: BorderRadius.circular(20),
@@ -522,7 +720,7 @@ class _ZonesMapScreenState extends State<ZonesMapScreen> {
                             child: Text(
                               _selectedZone!.hasPolygon ? 'Has Polygon' : 'No Polygon',
                               style: TextStyle(
-                                fontSize: 12,
+                                fontSize: 10,
                                 color: _selectedZone!.hasPolygon ? Colors.green[700] : Colors.orange[700],
                               ),
                             ),
@@ -535,6 +733,10 @@ class _ZonesMapScreenState extends State<ZonesMapScreen> {
                           _buildInfoChip(icon: Icons.area_chart, label: _selectedZone!.areaDisplay),
                           const SizedBox(width: 8),
                           _buildInfoChip(icon: Icons.location_city, label: _selectedZone!.locationDisplay),
+                          if (_selectedZone!.isSubZone && _selectedZone!.parentZoneId != null)
+                            const SizedBox(width: 8),
+                          if (_selectedZone!.isSubZone && _selectedZone!.parentZoneId != null)
+                            _buildInfoChip(icon: Icons.folder, label: 'Sub-Zone'),
                         ],
                       ),
                       const SizedBox(height: 12),
