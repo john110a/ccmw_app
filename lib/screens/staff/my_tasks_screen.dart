@@ -1,5 +1,3 @@
-// lib/screens/staff/my_tasks_screen.dart
-
 import 'package:flutter/material.dart';
 import '../../services/staff_action_service.dart';
 import '../../services/AuthService.dart';
@@ -23,7 +21,6 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
   String _selectedTab = 'active';
   String? _staffId;
 
-  // Statistics
   int _totalActive = 0;
   int _totalCompleted = 0;
   int _overdueCount = 0;
@@ -56,26 +53,12 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
 
     setState(() => _isLoading = true);
     try {
-      // Load active tasks
-      print('📡 Loading active tasks for staff: $_staffId');
       final activeData = await _staffActionService.getMyAssignments(_staffId!, status: 'active');
-      print('📦 Active data: $activeData');
-
       final activeAssignments = activeData['Assignments'] as List? ?? [];
       final activeStats = activeData['Statistics'] ?? {};
 
-      // Load completed tasks
-      print('📡 Loading completed tasks for staff: $_staffId');
       final completedData = await _staffActionService.getMyAssignments(_staffId!, status: 'completed');
-      print('📦 Completed data: $completedData');
-
       final completedAssignments = completedData['Assignments'] as List? ?? [];
-
-      // Print first active task for debugging
-      if (activeAssignments.isNotEmpty) {
-        print('🔍 First active task: ${activeAssignments[0]}');
-        print('🔍 Active task keys: ${activeAssignments[0].keys}');
-      }
 
       setState(() {
         _activeTasks = activeAssignments.cast<Map<String, dynamic>>();
@@ -88,7 +71,6 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      print('❌ Error loading tasks: $e');
       setState(() {
         _errorMessage = e.toString();
         _isLoading = false;
@@ -96,8 +78,126 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
     }
   }
 
+  void _unassignTask(Map<String, dynamic> task) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Unassign Task'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Remove this task from your assignments?'),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange[50],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, size: 20, color: Colors.orange),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'DEMO MODE: Task will be removed from your list',
+                      style: TextStyle(fontSize: 12, color: Colors.orange),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                _activeTasks.removeWhere((t) => t['AssignmentId'] == task['AssignmentId']);
+                _totalActive = _activeTasks.length;
+              });
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('✅ Task unassigned (Demo Mode)'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            child: const Text('Unassign'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _reopenTask(Map<String, dynamic> task) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reopen Task'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Move this completed task back to active tasks?'),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange[50],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, size: 20, color: Colors.orange),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'DEMO MODE: Task will be moved to active',
+                      style: TextStyle(fontSize: 12, color: Colors.orange),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                task['Status'] = 'InProgress';
+                _completedTasks.removeWhere((t) => t['AssignmentId'] == task['AssignmentId']);
+                _activeTasks.add(task);
+                _totalActive = _activeTasks.length;
+                _totalCompleted = _completedTasks.length;
+              });
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('✅ Task reopened (Demo Mode)'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+            child: const Text('Reopen'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _navigateToTaskDetail(Map<String, dynamic> task) async {
-    // Extract values with proper key names (API uses capitalized keys)
     final assignmentId = task['AssignmentId']?.toString() ?? task['assignmentId']?.toString();
     final title = task['Title']?.toString() ?? task['title']?.toString() ?? 'No Title';
     final complaintNumber = task['ComplaintNumber']?.toString() ?? task['complaintNumber']?.toString() ?? 'N/A';
@@ -200,7 +300,6 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
       )
           : Column(
         children: [
-          // Stats Bar
           Container(
             padding: const EdgeInsets.all(16),
             color: Colors.white,
@@ -222,7 +321,6 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
             ),
           ),
 
-          // Tab Selector
           Container(
             padding: const EdgeInsets.all(16),
             color: Colors.white,
@@ -275,7 +373,6 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
             ),
           ),
 
-          // Tasks List
           Expanded(
             child: RefreshIndicator(
               onRefresh: _loadTasks,
@@ -343,7 +440,6 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
   }
 
   Widget _buildTaskCard(Map<String, dynamic> task) {
-    // Extract values with proper key names (API uses capitalized keys)
     final title = task['Title']?.toString() ?? task['title']?.toString() ?? 'No Title';
     final complaintNumber = task['ComplaintNumber']?.toString() ?? task['complaintNumber']?.toString() ?? 'No Number';
     final description = task['Description']?.toString() ?? task['description']?.toString() ?? 'No description';
@@ -464,18 +560,40 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
                   ),
                   Row(
                     children: [
-                      Icon(Icons.category, size: 12, color: Colors.grey[400]),
-                      const SizedBox(width: 4),
-                      Text(
-                        categoryName,
-                        style: TextStyle(fontSize: 11, color: Colors.grey[500]),
-                      ),
-                      const SizedBox(width: 12),
-                      Icon(Icons.location_city, size: 12, color: Colors.grey[400]),
-                      const SizedBox(width: 4),
-                      Text(
-                        zoneName,
-                        style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                      if (status == 'Accepted')
+                        TextButton(
+                          onPressed: () => _unassignTask(task),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.orange,
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                          ),
+                          child: const Text('Unassign'),
+                        ),
+                      if (status == 'Completed')
+                        TextButton(
+                          onPressed: () => _reopenTask(task),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.blue,
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                          ),
+                          child: const Text('Reopen'),
+                        ),
+                      Row(
+                        children: [
+                          Icon(Icons.category, size: 12, color: Colors.grey[400]),
+                          const SizedBox(width: 4),
+                          Text(
+                            categoryName,
+                            style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                          ),
+                          const SizedBox(width: 12),
+                          Icon(Icons.location_city, size: 12, color: Colors.grey[400]),
+                          const SizedBox(width: 4),
+                          Text(
+                            zoneName,
+                            style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                          ),
+                        ],
                       ),
                     ],
                   ),

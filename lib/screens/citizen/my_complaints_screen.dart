@@ -48,7 +48,6 @@ class _MyComplaintsScreenState extends State<MyComplaintsScreen>
       setState(() {
         _allComplaints = complaints;
 
-        // Filter complaints
         _activeComplaints = complaints.where((c) =>
         c.currentStatus != 5 && c.currentStatus != 8).toList();
         _resolvedComplaints = complaints.where((c) =>
@@ -56,7 +55,6 @@ class _MyComplaintsScreenState extends State<MyComplaintsScreen>
         _rejectedComplaints = complaints.where((c) =>
         c.currentStatus == 7).toList();
 
-        // Update counts
         _totalCount = complaints.length;
         _activeCount = _activeComplaints.length;
         _resolvedCount = _resolvedComplaints.length;
@@ -71,6 +69,85 @@ class _MyComplaintsScreenState extends State<MyComplaintsScreen>
       });
     }
   }
+
+  void _cancelComplaint(Complaint complaint) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cancel Complaint'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Are you sure you want to cancel this complaint?'),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange[50],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, size: 20, color: Colors.orange),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'DEMO MODE: This action is simulated for evaluation purposes',
+                      style: TextStyle(fontSize: 12, color: Colors.orange),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('No'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                _allComplaints.removeWhere((c) => c.complaintId == complaint.complaintId);
+                _activeComplaints.removeWhere((c) => c.complaintId == complaint.complaintId);
+                _resolvedComplaints.removeWhere((c) => c.complaintId == complaint.complaintId);
+                _rejectedComplaints.removeWhere((c) => c.complaintId == complaint.complaintId);
+
+                _totalCount = _allComplaints.length;
+                _activeCount = _activeComplaints.length;
+                _resolvedCount = _resolvedComplaints.length;
+                _rejectedCount = _rejectedComplaints.length;
+              });
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('✅ Complaint cancelled (Demo Mode)'),
+                  backgroundColor: Colors.green,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Yes, Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // void _undoUpvote(Complaint complaint) {
+  //   setState(() {
+  //     complaint.upvoteCount--;
+  //   });
+  //   ScaffoldMessenger.of(context).showSnackBar(
+  //     const SnackBar(
+  //       content: Text('✅ Upvote removed (Demo Mode)'),
+  //       backgroundColor: Colors.green,
+  //       duration: Duration(seconds: 1),
+  //     ),
+  //   );
+  // }
 
   String _formatDate(DateTime dateTime) {
     return '${dateTime.day} ${_getMonth(dateTime.month)} ${dateTime.year}';
@@ -290,7 +367,7 @@ class _MyComplaintsScreenState extends State<MyComplaintsScreen>
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
-                      'Category', // You can add category name from another service
+                      'Category',
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
@@ -313,6 +390,35 @@ class _MyComplaintsScreenState extends State<MyComplaintsScreen>
                       fontSize: 12,
                       color: Colors.grey[600],
                     ),
+                  ),
+                  const Spacer(),
+                  PopupMenuButton<String>(
+                    onSelected: (value) {
+                      if (value == 'cancel') _cancelComplaint(complaint);
+                      //if (value == 'undo_upvote') _undoUpvote(complaint);
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: 'cancel',
+                        child: Row(
+                          children: [
+                            Icon(Icons.cancel, size: 18, color: Colors.red),
+                            SizedBox(width: 8),
+                            Text('Cancel Complaint'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'undo_upvote',
+                        child: Row(
+                          children: [
+                            Icon(Icons.thumb_down, size: 18, color: Colors.blue),
+                            SizedBox(width: 8),
+                            Text('Undo Upvote'),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),

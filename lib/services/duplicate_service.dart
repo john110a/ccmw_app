@@ -9,7 +9,7 @@ import 'package:flutter/material.dart';
 class DuplicateService {
 
   // =====================================================
-  // 1. DETECT POTENTIAL DUPLICATES (FIXED)
+  // 1. DETECT POTENTIAL DUPLICATES
   // =====================================================
 
   /// Detect potential duplicate complaints based on location and time
@@ -45,16 +45,13 @@ class DuplicateService {
         final dynamic data = json.decode(response.body);
         print('📦 Response: $data');
 
-        // FIXED: Properly cast to Map<String, dynamic>
         if (data is Map) {
-          // Convert Map<dynamic, dynamic> to Map<String, dynamic>
           final Map<String, dynamic> castedData = {};
           data.forEach((key, value) {
             castedData[key.toString()] = value;
           });
           return castedData;
         } else if (data is List) {
-          // If API returns a list directly, wrap it
           return {'PotentialDuplicates': data};
         } else {
           return {'PotentialDuplicates': []};
@@ -71,7 +68,7 @@ class DuplicateService {
   }
 
   // =====================================================
-  // 2. COMPARE TWO COMPLAINTS (FIXED)
+  // 2. COMPARE TWO COMPLAINTS
   // =====================================================
 
   /// Compare two specific complaints to determine if they are duplicates
@@ -96,7 +93,6 @@ class DuplicateService {
         final dynamic data = json.decode(response.body);
         print('📦 Comparison result: $data');
 
-        // FIXED: Properly cast to Map<String, dynamic>
         if (data is Map) {
           final Map<String, dynamic> castedData = {};
           data.forEach((key, value) {
@@ -118,7 +114,7 @@ class DuplicateService {
   }
 
   // =====================================================
-  // 3. MERGE DUPLICATES (FIXED)
+  // 3. MERGE DUPLICATES (MANUAL)
   // =====================================================
 
   /// Merge multiple complaints into one primary complaint
@@ -152,7 +148,6 @@ class DuplicateService {
         final dynamic data = json.decode(response.body);
         print('📦 Merge result: $data');
 
-        // FIXED: Properly cast to Map<String, dynamic>
         if (data is Map) {
           final Map<String, dynamic> castedData = {};
           data.forEach((key, value) {
@@ -174,7 +169,7 @@ class DuplicateService {
   }
 
   // =====================================================
-  // 4. GET MERGED CLUSTERS (FIXED)
+  // 4. GET MERGED CLUSTERS
   // =====================================================
 
   /// Get all duplicate clusters (already merged complaints)
@@ -218,7 +213,6 @@ class DuplicateService {
 
         print('✅ Found ${clustersList.length} clusters');
 
-        // Log each cluster for debugging
         for (var i = 0; i < clustersList.length; i++) {
           print('📊 Cluster $i: ${clustersList[i]}');
         }
@@ -236,7 +230,7 @@ class DuplicateService {
   }
 
   // =====================================================
-  // 5. TRIGGER DUPLICATE DETECTION (FIXED)
+  // 5. TRIGGER DUPLICATE DETECTION
   // =====================================================
 
   /// Manually trigger duplicate detection for all complaints
@@ -265,13 +259,12 @@ class DuplicateService {
   }
 
   // =====================================================
-  // 6. GET PENDING CLUSTER COUNT (FIXED)
+  // 6. GET PENDING CLUSTER COUNT
   // =====================================================
 
   /// Get the count of pending duplicate clusters ready for review
   Future<int> getPendingClusterCount() async {
     try {
-      // Try to get from stats endpoint first
       final stats = await getDuplicateStats();
 
       int count = stats['PendingReview'] ??
@@ -284,7 +277,6 @@ class DuplicateService {
     } catch (e) {
       print('❌ Error getting pending cluster count: $e');
 
-      // Fallback: calculate from clusters
       try {
         final clusters = await getDuplicateClusters(page: 1, pageSize: 100);
         print('📊 Fallback cluster count: ${clusters.length}');
@@ -297,7 +289,7 @@ class DuplicateService {
   }
 
   // =====================================================
-  // 7. GET DUPLICATE STATISTICS (FIXED)
+  // 7. GET DUPLICATE STATISTICS
   // =====================================================
 
   /// Get duplicate statistics from backend
@@ -318,7 +310,6 @@ class DuplicateService {
         final dynamic data = json.decode(response.body);
         print('📦 Stats data: $data');
 
-        // FIXED: Properly cast to Map<String, dynamic>
         if (data is Map) {
           final Map<String, dynamic> castedData = {};
           data.forEach((key, value) {
@@ -359,7 +350,7 @@ class DuplicateService {
   }
 
   // =====================================================
-  // 8. FORCE PROCESS COMPLAINTS (FIXED)
+  // 8. FORCE PROCESS COMPLAINTS
   // =====================================================
 
   /// Force process complaints to find duplicates (for testing)
@@ -367,7 +358,6 @@ class DuplicateService {
     try {
       print('📡 Force processing complaints...');
 
-      // Try multiple possible endpoints
       List<String> endpointsToTry = [
         '${ApiConfig.baseUrl}/duplicates/process-all-existing',
         '${ApiConfig.baseUrl}/duplicates/detect-all',
@@ -401,7 +391,7 @@ class DuplicateService {
   }
 
   // =====================================================
-  // 9. CHECK COMPLAINT STATUS (FIXED)
+  // 9. CHECK COMPLAINT STATUS
   // =====================================================
 
   /// Check if a specific complaint is marked as duplicate
@@ -415,7 +405,6 @@ class DuplicateService {
       if (response.statusCode == 200) {
         final dynamic data = json.decode(response.body);
 
-        // FIXED: Properly cast to Map<String, dynamic>
         if (data is Map) {
           final Map<String, dynamic> castedData = {};
           data.forEach((key, value) {
@@ -457,5 +446,105 @@ class DuplicateService {
     if (score >= 60) return Colors.orange;
     if (score >= 40) return Colors.amber;
     return Colors.grey;
+  }
+
+  // =====================================================
+  // 11. CHECK FOR DUPLICATES DURING SUBMISSION
+  // =====================================================
+
+  /// Check if a new complaint has duplicates (called before submission)
+  Future<Map<String, dynamic>> checkForDuplicatesOnSubmit({
+    required double lat,
+    required double lng,
+    required String categoryId,
+    double radiusMeters = 200,
+  }) async {
+    try {
+      final queryParams = {
+        'lat': lat.toString(),
+        'lng': lng.toString(),
+        'categoryId': categoryId,
+        'radiusMeters': radiusMeters.toString(),
+        'hoursThreshold': '168', // 7 days
+      };
+
+      final uri = Uri.parse('${ApiConfig.baseUrl}/duplicates/detect')
+          .replace(queryParameters: queryParams);
+
+      print('📡 Checking for duplicates near location: $uri');
+
+      final response = await http.get(
+        uri,
+        headers: ApiConfig.getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final potentialDuplicates = data['PotentialDuplicates'] ?? [];
+
+        print('📊 Found ${potentialDuplicates.length} potential duplicates');
+
+        return {
+          'hasDuplicates': potentialDuplicates.isNotEmpty,
+          'duplicateCount': potentialDuplicates.length,
+          'duplicates': potentialDuplicates,
+          'message': potentialDuplicates.isEmpty
+              ? 'No duplicates found'
+              : 'Found ${potentialDuplicates.length} similar complaints nearby'
+        };
+      }
+
+      return {'hasDuplicates': false, 'duplicateCount': 0, 'duplicates': []};
+    } catch (e) {
+      print('❌ Error checking duplicates on submit: $e');
+      return {'hasDuplicates': false, 'duplicateCount': 0, 'duplicates': []};
+    }
+  }
+
+  /// Get similar complaints by ID
+  Future<List<Complaint>> getSimilarComplaints(String complaintId, {double radiusMeters = 200}) async {
+    try {
+      // First get the complaint details
+      final complaintResponse = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/complaints/$complaintId/view'),
+        headers: ApiConfig.getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      if (complaintResponse.statusCode != 200) {
+        return [];
+      }
+
+      final complaintData = json.decode(complaintResponse.body);
+      final lat = complaintData['locationLatitude']?.toDouble();
+      final lng = complaintData['locationLongitude']?.toDouble();
+      final categoryId = complaintData['categoryId']?.toString();
+
+      if (lat == null || lng == null || categoryId == null) {
+        return [];
+      }
+
+      // Find similar complaints
+      final detectResult = await detectPotentialDuplicates(
+        lat: lat,
+        lng: lng,
+        categoryId: categoryId,
+        radiusMeters: radiusMeters,
+        hoursThreshold: 168,
+      );
+
+      final duplicates = detectResult['PotentialDuplicates'] ?? [];
+
+      List<Complaint> similarComplaints = [];
+      for (var dup in duplicates) {
+        if (dup['Complaint'] != null) {
+          similarComplaints.add(Complaint.fromJson(dup['Complaint']));
+        }
+      }
+
+      return similarComplaints;
+    } catch (e) {
+      print('❌ Error getting similar complaints: $e');
+      return [];
+    }
   }
 }

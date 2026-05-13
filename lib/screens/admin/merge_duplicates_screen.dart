@@ -142,7 +142,6 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
       return;
     }
 
-    // Get the primary complaint (first selected)
     final primaryComplaint = selected.first;
     final duplicateIds = selected.skip(1).map((c) => c.complaintId).toList();
 
@@ -171,7 +170,6 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
                     style: TextStyle(fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 8),
-                  // Primary complaint image if available
                   if (_getPhotoUrl(primaryComplaint) != null)
                     Row(
                       children: [
@@ -330,6 +328,64 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
     }
   }
 
+  // ===== VIRTUAL: Unmerge Cluster =====
+  void _unmergeCluster(DuplicateCluster cluster) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Unmerge Cluster'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Separate ${cluster.totalComplaintsMerged} complaints?'),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange[50],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, size: 20, color: Colors.orange),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      ' Complaints will be separated',
+                      style: TextStyle(fontSize: 12, color: Colors.orange),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                _clusters.removeWhere((c) => c.clusterId == cluster.clusterId);
+              });
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('✅ Cluster unmerged '),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            child: const Text('Unmerge'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _debugCheckDuplicates() async {
     try {
       showDialog(
@@ -407,21 +463,16 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
     }
   }
 
-  // Helper method to get photo URL from various sources
   String? _getPhotoUrl(DuplicateEntry entry) {
-    // Try from entry.thumbnailPhotoUrl (which now uses fullPhotoUrl)
     if (entry.thumbnailPhotoUrl != null && entry.thumbnailPhotoUrl!.isNotEmpty) {
       return entry.thumbnailPhotoUrl;
     }
-    // Try from complaint.firstPhotoUrl
     if (entry.complaint?.firstPhotoUrl != null && entry.complaint!.firstPhotoUrl!.isNotEmpty) {
       return ImageUtils.getFullImageUrl(entry.complaint!.firstPhotoUrl);
     }
-    // Try from complaint.complaintPhotos
     if (entry.complaint?.complaintPhotos.isNotEmpty == true) {
       return entry.complaint!.complaintPhotos.first.fullPhotoUrl;
     }
-    // Try from entry.photos
     if (entry.photos.isNotEmpty) {
       return entry.photos.first.fullPhotoUrl;
     }
@@ -632,7 +683,6 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
     final primaryCitizen = cluster.primaryComplaint?.citizenName ?? 'Unknown';
     final primaryUpvotes = cluster.primaryComplaint?.upvoteCount ?? 0;
 
-    // Get primary complaint photo
     String? primaryPhotoUrl;
     if (cluster.duplicateEntries.isNotEmpty) {
       primaryPhotoUrl = _getPhotoUrl(cluster.duplicateEntries.first);
@@ -648,7 +698,6 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -727,7 +776,6 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
                   ),
                   child: Row(
                     children: [
-                      // Primary complaint thumbnail using ImageUtils
                       ImageUtils.buildImageWidget(
                         imageUrl: primaryPhotoUrl,
                         width: 40,
@@ -777,10 +825,8 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
             ),
           ),
 
-          // Complaints List
           ...cluster.duplicateEntries.map((entry) => _buildComplaintItem(entry, cluster.clusterId)),
 
-          // Merge Controls
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -799,7 +845,10 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
                     const SizedBox(width: 8),
                     Text(
                       'Select All ($selectedCount/${cluster.duplicateEntries.length})',
-                      style: TextStyle(fontSize: 14, color: _isMerging ? Colors.grey : Colors.black),
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: _isMerging ? Colors.grey : Colors.black,
+                      ),
                     ),
                     const Spacer(),
                     Text(
@@ -809,21 +858,37 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _isMerging ? null : () => _mergeCluster(cluster),
-                    icon: const Icon(Icons.call_merge),
-                    label: _isMerging
-                        ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Text('Merge Selected'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      disabledBackgroundColor: Colors.grey[300],
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _isMerging ? null : () => _unmergeCluster(cluster),
+                        icon: const Icon(Icons.call_split, size: 16),
+                        label: const Text('Unmerge'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.orange,
+                          side: const BorderSide(color: Colors.orange),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _isMerging ? null : () => _mergeCluster(cluster),
+                        icon: const Icon(Icons.call_merge),
+                        label: _isMerging
+                            ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Text('Merge Selected'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          disabledBackgroundColor: Colors.grey[300],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -849,7 +914,6 @@ class _MergeDuplicatesScreenState extends State<MergeDuplicatesScreen> {
             },
           ),
           const SizedBox(width: 12),
-          // Complaint thumbnail using ImageUtils
           ImageUtils.buildImageWidget(
             imageUrl: photoUrl,
             width: 60,

@@ -13,7 +13,7 @@ import 'AuthService.dart';
 class ComplaintService {
   final AuthService _authService = AuthService();
 
-  /// Submit new complaint
+  /// Submit new complaint (ORIGINAL - without auto-merge)
   Future<Map<String, dynamic>> submitComplaint(Map<String, dynamic> complaintData) async {
     try {
       final userId = await _authService.getUserId();
@@ -55,6 +55,66 @@ class ComplaintService {
       throw Exception('Connection error: $e');
     } catch (e) {
       print('❌ Error submitting complaint: $e');
+      rethrow;
+    }
+  }
+
+  // =====================================================
+  // NEW: SUBMIT COMPLAINT WITH AUTO-MERGE
+  // =====================================================
+  Future<Map<String, dynamic>> submitComplaintWithAutoMerge(Map<String, dynamic> complaintData) async {
+    try {
+      final userId = await _authService.getUserId();
+      if (userId == null) {
+        throw Exception('User not logged in. Please login again.');
+      }
+
+      final Map<String, dynamic> requestData = {
+        ...complaintData,
+        'citizenId': userId,
+      };
+
+      print('📤 Submitting complaint with AUTO-MERGE to: ${ApiConfig.baseUrl}/complaints/submit-with-auto-merge');
+      print('📦 Request data: ${json.encode(requestData)}');
+
+      final response = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/complaints/submit-with-auto-merge'),
+        headers: ApiConfig.getHeaders(),
+        body: json.encode(requestData),
+      ).timeout(const Duration(seconds: 15));
+
+      print('📡 Response status: ${response.statusCode}');
+      print('📦 Response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final result = json.decode(response.body);
+
+        // Log auto-merge status
+        if (result['isMerged'] == true) {
+          print('✅ AUTO-MERGE SUCCESSFUL!');
+          print('   Merged with ${result['mergedCount']} existing complaints');
+          print('   New merged complaint ID: ${result['complaintId']}');
+          print('   New merged complaint number: ${result['complaintNumber']}');
+        } else {
+          print('✅ Complaint submitted successfully (no duplicates found)');
+        }
+
+        return result;
+      } else {
+        try {
+          final error = json.decode(response.body);
+          final errorMsg = error['Message'] ?? error['message'] ?? error['error'] ?? 'Unknown error';
+          throw Exception('Server error: $errorMsg');
+        } catch (_) {
+          throw Exception('Failed to submit complaint (Status: ${response.statusCode})');
+        }
+      }
+    } on SocketException {
+      throw Exception('Network error: Cannot connect to server. Check your internet connection.');
+    } on http.ClientException catch (e) {
+      throw Exception('Connection error: $e');
+    } catch (e) {
+      print('❌ Error submitting complaint with auto-merge: $e');
       rethrow;
     }
   }
@@ -438,9 +498,6 @@ class ComplaintService {
       return [];
     }
   }
-// Add to complaint_service.dart
-  // lib/services/complaint_service.dart
-// Add this method to existing ComplaintService class
 
   /// Mark complaint as fake (Admin only)
   Future<Map<String, dynamic>> markAsFake(String complaintId, String adminId) async {
@@ -503,6 +560,7 @@ class ComplaintService {
       return {'TotalCount': 0, 'FakeComplaints': []};
     }
   }
+
   /// Get complaint status history
   Future<List<ComplaintStatusHistory>> getComplaintStatusHistory(String complaintId) async {
     try {

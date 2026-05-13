@@ -599,7 +599,7 @@ class _IssueDetailsScreenState extends State<IssueDetailsScreen> {
 
                       print('Submitting complaint: $complaintData');
 
-                      final response = await _complaintService.submitComplaint(complaintData);
+                      final response = await _complaintService.submitComplaintWithAutoMerge(complaintData);
                       print('Response: $response');
 
                       // Extract complaintId from response
